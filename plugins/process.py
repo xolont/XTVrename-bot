@@ -40,12 +40,31 @@ async def process_file(client, message, data):
     file_path = os.path.join(Config.DOWNLOAD_DIR, f"{user_id}_input.mkv")
 
     try:
-        await client.download_media(
+        downloaded_path = await client.download_media(
             file_message,
             file_name=file_path,
             progress=progress_for_pyrogram,
             progress_args=("📥 **Downloading Media...**", status_msg, start_time)
         )
+
+        # DEBUGGING: Verify file existence and size
+        if downloaded_path and os.path.exists(downloaded_path):
+            file_size = os.path.getsize(downloaded_path)
+            logging.info(f"Download complete: {downloaded_path} (Size: {file_size} bytes)")
+            if file_size == 0:
+                await status_msg.edit_text(f"❌ **Download Error**\n\nFile size is 0 bytes.")
+                return
+            # Update file_path to the actual returned path (in case of extension changes)
+            file_path = downloaded_path
+        else:
+             # DEBUG: List directory if file missing
+            logging.error(f"Download reported success but file missing: {file_path}")
+            if os.path.exists(Config.DOWNLOAD_DIR):
+                logging.error(f"Directory contents: {os.listdir(Config.DOWNLOAD_DIR)}")
+
+            await status_msg.edit_text(f"❌ **Download Error**\n\nFile not found after download.\nExpected: `{file_path}`")
+            return
+
     except Exception as e:
         await status_msg.edit_text(f"❌ **Download Failed**\n\nError: `{e}`")
         return

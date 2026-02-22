@@ -26,19 +26,21 @@ async def probe_file(filepath):
     )
     stdout, stderr = await process.communicate()
     if process.returncode != 0:
-        return None
+        # Return stdout/stderr as error context if possible, or a default message
+        error_msg = stderr.decode().strip() or "ffprobe process failed"
+        return None, error_msg
     try:
-        return json.loads(stdout)
-    except json.JSONDecodeError:
-        return None
+        return json.loads(stdout), None
+    except json.JSONDecodeError as e:
+        return None, f"JSON Decode Error: {e}"
 
 def get_language_name(code):
     return LANGUAGE_MAP.get(code, code)
 
 async def generate_ffmpeg_command(input_path, output_path, metadata, thumbnail_path=None):
-    probe = await probe_file(input_path)
+    probe, err = await probe_file(input_path)
     if not probe:
-        return None, "Probe failed"
+        return None, f"Probe failed: {err}"
 
     cmd = ["ffmpeg", "-y", "-i", input_path]
 
