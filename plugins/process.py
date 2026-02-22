@@ -9,9 +9,15 @@ from utils.ffmpeg_tools import generate_ffmpeg_command, execute_ffmpeg
 from utils.progress import progress_for_pyrogram
 from functools import partial
 import logging
+import shutil
 
 async def process_file(client, message, data):
     user_id = message.chat.id
+
+    # 0. Check for FFmpeg first
+    if not shutil.which("ffmpeg"):
+        await message.edit_text("❌ **System Error**\n\n`ffmpeg` is not installed on the server. Please contact the administrator.")
+        return
 
     # Extract Data
     media_type = data.get("type")
@@ -25,8 +31,9 @@ async def process_file(client, message, data):
     file_message = data.get("file_message")
 
     status_msg = await message.edit_text(
-        "**Processing Phase 1/3**\n"
-        "Downloading media..."
+        "🚀 **Starting Process...**\n\n"
+        "📥 **Phase 1: Downloading**\n"
+        "Fetching your file from Telegram servers..."
     )
 
     start_time = time.time()
@@ -37,17 +44,17 @@ async def process_file(client, message, data):
             file_message,
             file_name=file_path,
             progress=progress_for_pyrogram,
-            progress_args=("Phase 1 – Downloading Media...", status_msg, start_time)
+            progress_args=("📥 **Downloading Media...**", status_msg, start_time)
         )
     except Exception as e:
-        await status_msg.edit_text(f"❌ Download Failed: {e}")
+        await status_msg.edit_text(f"❌ **Download Failed**\n\nError: `{e}`")
         return
 
     # 2. FFMpeg
     await status_msg.edit_text(
-        "**Processing Phase 2/3**\n"
-        "Adding Professional Metadata & Thumbnail...\n"
-        "(Applying @XTVglobal metadata...)"
+        "⚙️ **Phase 2: Processing**\n\n"
+        "Applying Metadata & Thumbnail...\n"
+        "PLEASE WAIT..."
     )
 
     settings = await db.get_settings()
@@ -110,19 +117,19 @@ async def process_file(client, message, data):
     )
 
     if not cmd:
-        await status_msg.edit_text(f"❌ FFMpeg Error: {err}")
+        await status_msg.edit_text(f"❌ **FFmpeg Error**\n\n`{err}`")
         return
 
     success, stderr = await execute_ffmpeg(cmd)
     if not success:
         print(stderr.decode())
-        await status_msg.edit_text("❌ Encoding Failed! Check logs.")
+        await status_msg.edit_text("❌ **Encoding Failed**\n\nSomething went wrong during processing.")
         return
 
     # 3. Upload
     await status_msg.edit_text(
-        "**Processing Phase 3/3**\n"
-        "Uploading Renamed File..."
+        "📤 **Phase 3: Uploading**\n\n"
+        "Sending the renamed file back to you..."
     )
 
     start_time = time.time()
@@ -131,16 +138,21 @@ async def process_file(client, message, data):
             chat_id=message.chat.id,
             document=output_path,
             thumb=thumb_path if os.path.exists(thumb_path) else None,
-            caption=final_filename,
+            caption=f"✅ **{final_filename}**",
             progress=progress_for_pyrogram,
-            progress_args=("Phase 3 – Uploading Renamed File...", status_msg, start_time)
+            progress_args=("📤 **Uploading...**", status_msg, start_time)
         )
 
         await status_msg.delete()
-        await message.reply_text("✅ **Processing Complete!**\n/new to start again.")
+        await message.reply_text(
+            "✅ **Task Completed Successfully!**\n\n"
+            f"📂 **File:** `{final_filename}`\n"
+            "🤖 **Processed by:** XTV Rename Bot\n\n"
+            "Hit /new to start a new task."
+        )
 
     except Exception as e:
-        await status_msg.edit_text(f"❌ Upload Failed: {e}")
+        await status_msg.edit_text(f"❌ **Upload Failed**\n\nError: `{e}`")
     finally:
         if os.path.exists(file_path): os.remove(file_path)
         if os.path.exists(output_path): os.remove(output_path)
