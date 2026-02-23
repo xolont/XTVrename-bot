@@ -1,7 +1,7 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════╗
 ║                    Developed by 𝕏0L0™ (@davdxpx)                         ║
-║     © 2024 XTV Network Global. All Rights Reserved.                      ║
+║     © 2026 XTV Network Global. All Rights Reserved.                      ║
 ║                                                                          ║
 ║  Project: XTV Rename Bot                                                 ║
 ║  Author: 𝕏0L0™                                                           ║

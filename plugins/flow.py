@@ -1,22 +1,3 @@
-"""
-╔══════════════════════════════════════════════════════════════════════════╗
-║                    Developed by 𝕏0L0™ (@davdxpx)                         ║
-║     © 2024 XTV Network Global. All Rights Reserved.                      ║
-║                                                                          ║
-║  Project: XTV Rename Bot                                                 ║
-║  Author: 𝕏0L0™                                                           ║
-║  Telegram: @davdxpx                                                      ║
-║  Channel: @XTVbots                                                       ║
-║  Network: @XTVglobal                                                     ║
-║  Backup: @XTVhome                                                        ║
-║                                                                          ║
-║  WARNING: This code is the intellectual property of XTV Network.         ║
-║  Unauthorized modification, redistribution, or removal of this credit    ║
-║  is strictly prohibited. Forking and simple usage is allowed under       ║
-║  the terms of the license.                                               ║
-╚══════════════════════════════════════════════════════════════════════════╝
-"""
-
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from utils.tmdb import tmdb
@@ -467,7 +448,7 @@ async def handle_auto_detection(client, message):
         "is_auto": True # Flag to know this was auto-detected
     }
 
-    await update_auto_detected_message(client, msg_id, message.from_user.id)
+    await update_auto_detected_message(client, msg.id, message.from_user.id)
 
 async def update_auto_detected_message(client, msg_id, user_id):
     if msg_id not in file_sessions: return
@@ -747,3 +728,12 @@ async def handle_correct_tmdb_selection(client, callback_query):
     # Delete the search result message and update original
     await callback_query.message.delete()
     await update_auto_detected_message(client, msg_id, callback_query.from_user.id)
+
+# --------------------------------------------------------------------------
+# Developed by 𝕏0L0™ (@davdxpx) | © 2026 XTV Network Global
+# Don't Remove Credit
+# Telegram Channel @XTVbots
+# Developed for the 𝕏TV Network @XTVglobal
+# Backup Channel @XTVhome
+# Contact on Telegram @davdxpx
+# --------------------------------------------------------------------------

@@ -32,6 +32,15 @@ The **XTV Rename Bot** is a high-performance, enterprise-grade Telegram bot engi
 *   **Anti-Hash Algorithm**: Generates unique, random captions for every file to prevent hash-based tracking or duplicate detection.
 *   **Concurrency Control**: Global semaphore system prevents server overload by managing simultaneous downloads/uploads.
 
+### 🔹 Other Features
+*   **Admin Panel**: Full control over bot settings, templates, and thumbnails via an inline menu.
+*   **Custom Thumbnails**: Set a global default thumbnail for all processed files.
+*   **Caption Templates**: Customizable templates with variables like `{filename}`, `{size}`, and `{duration}`.
+*   **Force Subtitles**: Intelligent logic to set default subtitle tracks.
+*   **Album Support**: Handles multiple file uploads (albums) concurrently without issues.
+*   **Session State**: Robust user state management allows for cancelling and restarting flows easily.
+*   **Broadcast & Logs**: (Planned) Features for mass notifications and logging processed files.
+
 ## 🛠 Deployment Guide
 
 ### 1. Deploy on Railway (Recommended)
@@ -103,6 +112,6 @@ This project is open-source under the **XTV Public License**.
     Contact on Telegram: <a href="https://t.me/davdxpx">@davdxpx</a>
   </p>
   <p>
-    <i>© 2024 XTV Network Global. All Rights Reserved.</i>
+    <i>© 2026 XTV Network Global. All Rights Reserved.</i>
   </p>
 </div>

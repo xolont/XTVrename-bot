@@ -1,22 +1,3 @@
-"""
-╔══════════════════════════════════════════════════════════════════════════╗
-║                    Developed by 𝕏0L0™ (@davdxpx)                         ║
-║     © 2024 XTV Network Global. All Rights Reserved.                      ║
-║                                                                          ║
-║  Project: XTV Rename Bot                                                 ║
-║  Author: 𝕏0L0™                                                           ║
-║  Telegram: @davdxpx                                                      ║
-║  Channel: @XTVbots                                                       ║
-║  Network: @XTVglobal                                                     ║
-║  Backup: @XTVhome                                                        ║
-║                                                                          ║
-║  WARNING: This code is the intellectual property of XTV Network.         ║
-║  Unauthorized modification, redistribution, or removal of this credit    ║
-║  is strictly prohibited. Forking and simple usage is allowed under       ║
-║  the terms of the license.                                               ║
-╚══════════════════════════════════════════════════════════════════════════╝
-"""
-
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from config import Config
@@ -232,3 +213,12 @@ async def handle_admin_text(client, message):
     await message.reply_text(f"✅ Template for **{field.capitalize()}** updated to:\n`{new_template}`",
                              reply_markup=reply_markup)
     admin_sessions.pop(user_id, None)
+
+# --------------------------------------------------------------------------
+# Developed by 𝕏0L0™ (@davdxpx) | © 2026 XTV Network Global
+# Don't Remove Credit
+# Telegram Channel @XTVbots
+# Developed for the 𝕏TV Network @XTVglobal
+# Backup Channel @XTVhome
+# Contact on Telegram @davdxpx
+# --------------------------------------------------------------------------
