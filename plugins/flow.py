@@ -126,7 +126,12 @@ async def season_handler(client, message):
     title = data.get("title")
 
     if data.get("is_subtitle"):
-        await initiate_language_selection(client, user_id, message)
+        set_state(user_id, "awaiting_episode")
+        await message.reply_text(
+            f"**Season {season} Confirmed** for {title}.\n\n"
+            "Please enter the **Episode Number** (e.g. 1, 2, ...):",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="cancel_rename")]])
+        )
         return
 
     set_state(user_id, "awaiting_file_upload")
@@ -137,6 +142,19 @@ async def season_handler(client, message):
         "For series, I will auto-detect the episode number from the filename (e.g. S01E05).",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="cancel_rename")]])
     )
+
+async def episode_handler(client, message):
+    user_id = message.from_user.id
+    text = message.text
+
+    if not text.isdigit():
+        await message.reply_text("Please enter a valid number for the episode.")
+        return
+
+    episode = int(text)
+    update_data(user_id, "episode", episode)
+
+    await initiate_language_selection(client, user_id, message)
 
 # Group 2 - Runs AFTER start commands
 # Ignore anything starting with / to avoid catching commands
@@ -159,6 +177,9 @@ async def handle_text_input(client, message):
         await search_handler(client, message, "series")
     elif state == "awaiting_season":
         await season_handler(client, message)
+
+    elif state == "awaiting_episode":
+        await episode_handler(client, message)
 
     elif state == "awaiting_language_custom":
         lang = message.text.strip().lower()
@@ -319,13 +340,16 @@ async def handle_file_upload(client, message):
     session_data = get_data(user_id)
     if session_data.get("type") == "series":
         season = session_data.get("season", 1)
-        match = re.search(r"[sS]?\d{1,2}[eE](\d{1,2})", file_name)
-        if match:
-            episode = int(match.group(1))
+        if session_data.get("is_subtitle"):
+             episode = session_data.get("episode", 1)
         else:
-             match = re.search(r"[eE](\d{1,2})", file_name)
-             if match:
-                 episode = int(match.group(1))
+            match = re.search(r"[sS]?\d{1,2}[eE](\d{1,2})", file_name)
+            if match:
+                episode = int(match.group(1))
+            else:
+                match = re.search(r"[eE](\d{1,2})", file_name)
+                if match:
+                    episode = int(match.group(1))
 
     msg = await message.reply_text("Processing file...", quote=True)
 
@@ -370,7 +394,8 @@ async def update_confirmation_message(client, msg_id, user_id):
         row2.append(InlineKeyboardButton("Change Season", callback_data=f"season_change_{msg_id}"))
 
     buttons.append(row1)
-    buttons.append(row2)
+    if row2:
+        buttons.append(row2)
     buttons.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_file_{msg_id}")])
 
     await client.edit_message_text(

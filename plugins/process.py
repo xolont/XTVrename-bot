@@ -4,238 +4,327 @@ import asyncio
 import re
 import random
 import string
+import logging
+import shutil
+import aiohttp
+from typing import Optional, Dict, Tuple, Any
+
 from pyrogram import Client
+from pyrogram.types import Message
 from config import Config
 from database import db
 from utils.ffmpeg_tools import generate_ffmpeg_command, execute_ffmpeg
 from utils.progress import progress_for_pyrogram
-from functools import partial
-import logging
-import shutil
 
-async def process_file(client, message, data):
-    user_id = message.chat.id
-    # Use message ID to make the filename unique for concurrent processing (e.g. albums)
-    message_id = message.id
+# Configure structured logger
+logger = logging.getLogger("TaskProcessor")
 
-    # 0. Check for FFmpeg first
-    if not shutil.which("ffmpeg"):
-        await message.edit_text("❌ **System Error**\n\n`ffmpeg` is not installed on the server. Please contact the administrator.")
-        return
+class TaskProcessor:
+    """
+    Handles the end-to-end processing of a media file:
+    Download -> Metadata/Thumbnail Preparation -> FFmpeg Processing -> Upload.
+    Designed with a focus on clean architecture, robust error handling, and business-grade feedback.
+    """
 
-    # Extract Data
-    media_type = data.get("type")
-    is_subtitle = data.get("is_subtitle", False)
-    language = data.get("language", "en")
-    tmdb_id = data.get("tmdb_id")
-    title = data.get("title")
-    year = data.get("year")
-    poster_url = data.get("poster")
-    season = data.get("season")
-    episode = data.get("episode")
-    quality = data.get("quality", "720p")
-    file_message = data.get("file_message")
-    original_name = data.get("original_name", "unknown.mkv")
+    def __init__(self, client: Client, message: Message, data: Dict[str, Any]):
+        self.client = client
+        self.message = message
+        self.data = data
 
-    status_msg = await message.edit_text(
-        "🚀 **Starting Process...**\n\n"
-        "📥 **Phase 1: Downloading**\n"
-        "Fetching your file from Telegram servers..."
-    )
+        self.user_id = message.chat.id
+        self.message_id = message.id
+        self.start_time = time.time()
 
-    start_time = time.time()
-    # Unique input filename
-    ext = ".mkv"
-    if is_subtitle:
-         ext = os.path.splitext(original_name)[1]
-         if not ext: ext = ".srt"
+        # Paths
+        self.download_dir = Config.DOWNLOAD_DIR
+        self.input_path: Optional[str] = None
+        self.output_path: Optional[str] = None
+        self.thumb_path: Optional[str] = None
 
-    file_path = os.path.join(Config.DOWNLOAD_DIR, f"{user_id}_{message_id}_input{ext}")
+        # Data Extraction
+        self.media_type = data.get("type")
+        self.is_subtitle = data.get("is_subtitle", False)
+        self.language = data.get("language", "en")
+        self.tmdb_id = data.get("tmdb_id")
+        self.title = data.get("title")
+        self.year = data.get("year")
+        self.poster_url = data.get("poster")
+        self.season = data.get("season")
+        self.episode = data.get("episode")
+        self.quality = data.get("quality", "720p")
+        self.file_message = data.get("file_message")
+        self.original_name = data.get("original_name", "unknown.mkv")
 
-    try:
-        downloaded_path = await client.download_media(
-            file_message,
-            file_name=file_path,
-            progress=progress_for_pyrogram,
-            progress_args=("📥 **Downloading Media...**", status_msg, start_time)
+        # Runtime State
+        self.status_msg: Optional[Message] = None
+        self.settings: Optional[Dict] = None
+        self.templates: Optional[Dict] = None
+
+    async def run(self):
+        """Execute the full processing pipeline."""
+        try:
+            # Phase 0: Initialization & Validation
+            if not await self._initialize():
+                return
+
+            # Phase 1: Download
+            if not await self._download_media():
+                return
+
+            # Phase 2: Metadata & Thumbnail Setup
+            await self._prepare_resources()
+
+            # Phase 3: Processing
+            if not await self._process_media():
+                return
+
+            # Phase 4: Upload
+            await self._upload_media()
+
+        except Exception as e:
+            logger.exception(f"Critical error in task for user {self.user_id}: {e}")
+            await self._update_status(f"❌ **Critical System Error**\n\n`{str(e)}`")
+        finally:
+            self._cleanup()
+
+    async def _initialize(self) -> bool:
+        """Check system requirements and initialize status."""
+        if not shutil.which("ffmpeg"):
+            await self.message.edit_text("❌ **System Error**\n\n`ffmpeg` binary not found. Contact administrator.")
+            return False
+
+        self.status_msg = await self.message.edit_text(
+            "⏳ **Initializing Task...**\n"
+            "Allocating resources and preparing environment."
         )
 
-        # DEBUGGING: Verify file existence and size
-        if downloaded_path and os.path.exists(downloaded_path):
-            file_size = os.path.getsize(downloaded_path)
-            logging.info(f"Download complete: {downloaded_path} (Size: {file_size} bytes)")
-            if file_size == 0:
-                await status_msg.edit_text(f"❌ **Download Error**\n\nFile size is 0 bytes.")
-                return
-            # Update file_path to the actual returned path (in case of extension changes)
-            file_path = downloaded_path
+        # Load settings once
+        self.settings = await db.get_settings()
+        if self.settings:
+            self.templates = self.settings.get("templates", Config.DEFAULT_TEMPLATES)
         else:
-             # DEBUG: List directory if file missing
-            logging.error(f"Download reported success but file missing: {file_path}")
-            if os.path.exists(Config.DOWNLOAD_DIR):
-                logging.error(f"Directory contents: {os.listdir(Config.DOWNLOAD_DIR)}")
+            logger.warning("Database settings unavailable, using defaults.")
+            self.templates = Config.DEFAULT_TEMPLATES
 
-            await status_msg.edit_text(f"❌ **Download Error**\n\nFile not found after download.\nExpected: `{file_path}`")
-            return
+        return True
 
-    except Exception as e:
-        await status_msg.edit_text(f"❌ **Download Failed**\n\nError: `{e}`")
-        return
+    async def _download_media(self) -> bool:
+        """Download the media file from Telegram."""
+        await self._update_status(
+            "📥 **Acquiring Media Resources**\n\n"
+            "Establishing connection to Telegram servers..."
+        )
 
-    # 2. FFMpeg
-    await status_msg.edit_text(
-        "⚙️ **Phase 2: Processing**\n\n"
-        "Applying Metadata & Thumbnail...\n"
-        "PLEASE WAIT..."
-    )
+        ext = ".mkv"
+        if self.is_subtitle:
+             ext = os.path.splitext(self.original_name)[1]
+             if not ext: ext = ".srt"
 
-    settings = await db.get_settings()
-    if settings:
-        templates = settings.get("templates", Config.DEFAULT_TEMPLATES)
-        thumb_binary = settings.get("thumbnail_binary")
-    else:
-        logging.warning("Database settings not available. Using defaults.")
-        templates = Config.DEFAULT_TEMPLATES
-        thumb_binary = None
+        self.input_path = os.path.join(self.download_dir, f"{self.user_id}_{self.message_id}_input{ext}")
+        download_start = time.time()
 
-    # Unique thumbnail path
-    thumb_path = os.path.join(Config.DOWNLOAD_DIR, f"{user_id}_{message_id}_thumb.jpg")
+        try:
+            downloaded_path = await self.client.download_media(
+                self.file_message,
+                file_name=self.input_path,
+                progress=progress_for_pyrogram,
+                progress_args=("📥 **Downloading Media Content...**", self.status_msg, download_start)
+            )
 
-    if not is_subtitle:
-        if thumb_binary:
-            with open(thumb_path, "wb") as f:
-                f.write(thumb_binary)
-        else:
-            if poster_url:
-                import aiohttp
+            if downloaded_path and os.path.exists(downloaded_path):
+                self.input_path = downloaded_path
+                file_size = os.path.getsize(self.input_path)
+                logger.info(f"Download success: {self.input_path} ({file_size} bytes)")
+
+                if file_size == 0:
+                    await self._update_status("❌ **Download Integrity Error**\n\nFile size is 0 bytes.")
+                    return False
+                return True
+            else:
+                logger.error(f"Download returned path but file missing: {self.input_path}")
+                await self._update_status("❌ **Download Verification Failed**\n\nFile not found on disk.")
+                return False
+
+        except Exception as e:
+            logger.error(f"Download failed: {e}")
+            await self._update_status(f"❌ **Network Error during Download**\n\n`{e}`")
+            return False
+
+    async def _prepare_resources(self):
+        """Prepare thumbnail and calculate final filename/metadata."""
+        await self._update_status(
+            "🎨 **Preparing Metadata Assets**\n\n"
+            "Optimizing thumbnails and configuring metadata..."
+        )
+
+        # Thumbnail Handling
+        self.thumb_path = os.path.join(self.download_dir, f"{self.user_id}_{self.message_id}_thumb.jpg")
+
+        if not self.is_subtitle:
+            thumb_binary = self.settings.get("thumbnail_binary") if self.settings else None
+
+            if thumb_binary:
+                with open(self.thumb_path, "wb") as f:
+                    f.write(thumb_binary)
+            elif self.poster_url:
                 try:
                     async with aiohttp.ClientSession() as session:
-                        async with session.get(poster_url) as resp:
+                        async with session.get(self.poster_url) as resp:
                             if resp.status == 200:
-                                with open(thumb_path, "wb") as f:
+                                with open(self.thumb_path, "wb") as f:
                                     f.write(await resp.read())
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to download poster: {e}")
 
-    sanitized_title = title.replace(" ", ".")
-    safe_title = re.sub(r'[\\/*?:"<>|]', '', sanitized_title)
+        # Filename & Metadata Calculation
+        sanitized_title = self.title.replace(" ", ".")
+        safe_title = re.sub(r'[\\/*?:"<>|]', '', sanitized_title)
 
-    if media_type == "series":
-        s_str = f"S{season:02d}"
-        e_str = f"E{episode:02d}"
-        season_episode = f"{s_str}{e_str}"
+        if self.media_type == "series":
+            season_episode = f"S{self.season:02d}E{self.episode:02d}"
 
-        if is_subtitle:
-            final_filename = f"{safe_title}.{season_episode}.{language}.srt"
+            if self.is_subtitle:
+                final_filename = f"{safe_title}.{season_episode}.{self.language}.srt"
+            else:
+                final_filename = f"{safe_title}.{season_episode}.{self.quality}_[@XTVglobal].mkv"
+
+            meta_title = self.templates.get("title", "").format(title=self.title, season_episode=season_episode)
         else:
-            final_filename = f"{safe_title}.{season_episode}.{quality}_[@XTVglobal].mkv"
+            season_episode = ""
+            if self.is_subtitle:
+                final_filename = f"{safe_title}.{self.year}.{self.language}.srt"
+            else:
+                final_filename = f"{safe_title}.{self.quality}_[@XTVglobal].mkv"
 
-        meta_title = templates.get("title", "").format(title=title, season_episode=season_episode)
-    else:
-        season_episode = ""
+            meta_title = self.templates.get("title", "").format(title=self.title, season_episode="").strip()
 
-        if is_subtitle:
-            final_filename = f"{safe_title}.{year}.{language}.srt"
-        else:
-            final_filename = f"{safe_title}.{quality}_[@XTVglobal].mkv"
+        self.output_path = os.path.join(self.download_dir, final_filename)
 
-        meta_title = templates.get("title", "").format(title=title, season_episode="").strip()
+        # Conflict Resolution
+        if os.path.exists(self.output_path):
+             self.output_path = os.path.join(self.download_dir, f"{int(time.time())}_{final_filename}")
 
-    metadata_dict = {
-        "title": meta_title,
-        "author": templates.get("author", ""),
-        "artist": templates.get("artist", ""),
-        "encoded_by": "@XTVglobal",
-        "video_title": templates.get("video", "Encoded By:- @XTVglobal"),
-        "audio_title": templates.get("audio", "Audio By:- @XTVglobal - {lang}"),
-        "subtitle_title": templates.get("subtitle", "Subtitled By:- @XTVglobal - {lang}"),
-        "default_language": "English"
-    }
+        self.metadata = {
+            "title": meta_title,
+            "author": self.templates.get("author", ""),
+            "artist": self.templates.get("artist", ""),
+            "encoded_by": "@XTVglobal",
+            "video_title": self.templates.get("video", "Encoded By:- @XTVglobal"),
+            "audio_title": self.templates.get("audio", "Audio By:- @XTVglobal - {lang}"),
+            "subtitle_title": self.templates.get("subtitle", "Subtitled By:- @XTVglobal - {lang}"),
+            "default_language": "English",
+            "copyright": self.templates.get("copyright", "@XTVglobal")
+        }
 
-    output_path = os.path.join(Config.DOWNLOAD_DIR, final_filename)
+    async def _process_media(self) -> bool:
+        """Run the FFmpeg processing command."""
+        await self._update_status(
+            "⚙️ **Executing Transcoding Matrix**\n\n"
+            "Injecting metadata and optimizing container..."
+        )
 
-    # Check if output file already exists (race condition check)
-    if os.path.exists(output_path):
-         output_path = os.path.join(Config.DOWNLOAD_DIR, f"{int(time.time())}_{final_filename}")
+        cmd, err = await generate_ffmpeg_command(
+            input_path=self.input_path,
+            output_path=self.output_path,
+            metadata=self.metadata,
+            thumbnail_path=self.thumb_path if (os.path.exists(self.thumb_path) and not self.is_subtitle) else None
+        )
 
-    cmd, err = await generate_ffmpeg_command(
-        input_path=file_path,
-        output_path=output_path,
-        metadata=metadata_dict,
-        thumbnail_path=thumb_path if (os.path.exists(thumb_path) and not is_subtitle) else None
-    )
+        if not cmd:
+            logger.error(f"FFmpeg command generation failed: {err}")
+            await self._update_status(f"❌ **Processing Configuration Error**\n\n`{err}`")
+            return False
 
-    if not cmd:
-        await status_msg.edit_text(f"❌ **FFmpeg Error**\n\n`{err}`")
-        if os.path.exists(file_path): os.remove(file_path)
-        if os.path.exists(thumb_path): os.remove(thumb_path)
-        return
+        success, stderr = await execute_ffmpeg(cmd)
+        if not success:
+            err_msg = stderr.decode() if stderr else "Unknown Error"
+            logger.error(f"FFmpeg execution failed: {err_msg}")
+            await self._update_status("❌ **Transcoding Failed**\n\nEngine reported an error during processing.")
+            return False
 
-    success, stderr = await execute_ffmpeg(cmd)
-    if not success:
-        print(stderr.decode())
-        await status_msg.edit_text("❌ **Encoding Failed**\n\nSomething went wrong during processing.")
-        if os.path.exists(file_path): os.remove(file_path)
-        if os.path.exists(thumb_path): os.remove(thumb_path)
-        if os.path.exists(output_path): os.remove(output_path)
-        return
+        return True
 
-    # 3. Upload
-    await status_msg.edit_text(
-        "📤 **Phase 3: Uploading**\n\n"
-        "Sending the renamed file back to you..."
-    )
+    async def _upload_media(self):
+        """Upload the final file."""
+        await self._update_status(
+            "📤 **Finalizing & Uploading**\n\n"
+            "Transferring optimized asset to cloud..."
+        )
 
-    start_time = time.time()
+        upload_start = time.time()
+        final_filename = os.path.basename(self.output_path)
 
-    # Generate Caption
-    caption_template = templates.get("caption", "{random}")
-    if "{random}" in caption_template or caption_template == "{random}":
-        # Generate random string to bypass hash detection
-        random_str = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
-        final_caption = random_str
-    else:
-        # Helper to get human readable size
-        def humanbytes(size):
-            if not size: return ""
-            power = 2**10
-            n = 0
-            Dic_powerN = {0: ' ', 1: 'K', 2: 'M', 3: 'G', 4: 'T'}
-            while size > power:
-                size /= power
-                n += 1
-            return str(round(size, 2)) + " " + Dic_powerN[n] + 'B'
+        # Caption Generation
+        caption = self._generate_caption(final_filename)
 
-        file_size_str = humanbytes(os.path.getsize(output_path))
-        # We don't have duration easily available without probing again, so we'll skip duration for now or default
-        final_caption = caption_template.format(
-            filename=final_filename,
-            size=file_size_str,
+        try:
+            thumb = self.thumb_path if (os.path.exists(self.thumb_path) and not self.is_subtitle) else None
+
+            await self.client.send_document(
+                chat_id=self.user_id,
+                document=self.output_path,
+                thumb=thumb,
+                caption=caption,
+                progress=progress_for_pyrogram,
+                progress_args=("📤 **Uploading Final Asset...**", self.status_msg, upload_start)
+            )
+
+            await self.status_msg.delete()
+            await self.message.reply_text(
+                "✅ **Processing Complete**\n\n"
+                f"📂 **File:** `{final_filename}`\n"
+                "🤖 **Engine:** XTV Core v2.0\n\n"
+                "Ready for next task. /new"
+            )
+
+        except Exception as e:
+            logger.error(f"Upload failed: {e}")
+            await self._update_status(f"❌ **Upload Protocol Failed**\n\n`{e}`")
+
+    def _generate_caption(self, filename: str) -> str:
+        """Generate a secure caption based on templates."""
+        template = self.templates.get("caption", "{random}")
+
+        if "{random}" in template or template == "{random}":
+            return ''.join(random.choices(string.ascii_letters + string.digits, k=16))
+
+        file_size = os.path.getsize(self.output_path)
+        size_str = self._humanbytes(file_size)
+
+        return template.format(
+            filename=filename,
+            size=size_str,
             duration="", # Placeholder
             random=''.join(random.choices(string.ascii_letters + string.digits, k=8))
         )
 
-    try:
-        await client.send_document(
-            chat_id=message.chat.id,
-            document=output_path,
-            thumb=thumb_path if os.path.exists(thumb_path) else None,
-            caption=final_caption,
-            progress=progress_for_pyrogram,
-            progress_args=("📤 **Uploading...**", status_msg, start_time)
-        )
+    @staticmethod
+    def _humanbytes(size: int) -> str:
+        if not size: return ""
+        power = 2**10
+        n = 0
+        dic_power = {0: ' ', 1: 'K', 2: 'M', 3: 'G', 4: 'T'}
+        while size > power:
+            size /= power
+            n += 1
+        return str(round(size, 2)) + " " + dic_power[n] + 'B'
 
-        await status_msg.delete()
-        await message.reply_text(
-            "✅ **Task Completed Successfully!**\n\n"
-            f"📂 **File:** `{final_filename}`\n"
-            "🤖 **Processed by:** XTV Rename Bot\n\n"
-            "Hit /new to start a new task."
-        )
+    async def _update_status(self, text: str):
+        try:
+            await self.status_msg.edit_text(text)
+        except Exception as e:
+            logger.warning(f"Failed to update status message: {e}")
 
-    except Exception as e:
-        await status_msg.edit_text(f"❌ **Upload Failed**\n\nError: `{e}`")
-    finally:
-        if os.path.exists(file_path): os.remove(file_path)
-        if os.path.exists(output_path): os.remove(output_path)
-        if os.path.exists(thumb_path): os.remove(thumb_path)
+    def _cleanup(self):
+        """Clean up temporary files."""
+        for path in [self.input_path, self.output_path, self.thumb_path]:
+            if path and os.path.exists(path):
+                try:
+                    os.remove(path)
+                except Exception as e:
+                    logger.warning(f"Failed to remove temp file {path}: {e}")
+
+# Entry point for the plugin system
+async def process_file(client, message, data):
+    processor = TaskProcessor(client, message, data)
+    await processor.run()
