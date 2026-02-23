@@ -25,6 +25,8 @@ async def process_file(client, message, data):
 
     # Extract Data
     media_type = data.get("type")
+    is_subtitle = data.get("is_subtitle", False)
+    language = data.get("language", "en")
     tmdb_id = data.get("tmdb_id")
     title = data.get("title")
     year = data.get("year")
@@ -33,6 +35,7 @@ async def process_file(client, message, data):
     episode = data.get("episode")
     quality = data.get("quality", "720p")
     file_message = data.get("file_message")
+    original_name = data.get("original_name", "unknown.mkv")
 
     status_msg = await message.edit_text(
         "🚀 **Starting Process...**\n\n"
@@ -42,7 +45,12 @@ async def process_file(client, message, data):
 
     start_time = time.time()
     # Unique input filename
-    file_path = os.path.join(Config.DOWNLOAD_DIR, f"{user_id}_{message_id}_input.mkv")
+    ext = ".mkv"
+    if is_subtitle:
+         ext = os.path.splitext(original_name)[1]
+         if not ext: ext = ".srt"
+
+    file_path = os.path.join(Config.DOWNLOAD_DIR, f"{user_id}_{message_id}_input{ext}")
 
     try:
         downloaded_path = await client.download_media(
@@ -93,20 +101,21 @@ async def process_file(client, message, data):
     # Unique thumbnail path
     thumb_path = os.path.join(Config.DOWNLOAD_DIR, f"{user_id}_{message_id}_thumb.jpg")
 
-    if thumb_binary:
-        with open(thumb_path, "wb") as f:
-            f.write(thumb_binary)
-    else:
-        if poster_url:
-            import aiohttp
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(poster_url) as resp:
-                        if resp.status == 200:
-                            with open(thumb_path, "wb") as f:
-                                f.write(await resp.read())
-            except:
-                pass
+    if not is_subtitle:
+        if thumb_binary:
+            with open(thumb_path, "wb") as f:
+                f.write(thumb_binary)
+        else:
+            if poster_url:
+                import aiohttp
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(poster_url) as resp:
+                            if resp.status == 200:
+                                with open(thumb_path, "wb") as f:
+                                    f.write(await resp.read())
+                except:
+                    pass
 
     sanitized_title = title.replace(" ", ".")
     safe_title = re.sub(r'[\\/*?:"<>|]', '', sanitized_title)
@@ -115,11 +124,21 @@ async def process_file(client, message, data):
         s_str = f"S{season:02d}"
         e_str = f"E{episode:02d}"
         season_episode = f"{s_str}{e_str}"
-        final_filename = f"{safe_title}.{season_episode}.{quality}_[@XTVglobal].mkv"
+
+        if is_subtitle:
+            final_filename = f"{safe_title}.{season_episode}.{language}.srt"
+        else:
+            final_filename = f"{safe_title}.{season_episode}.{quality}_[@XTVglobal].mkv"
+
         meta_title = templates.get("title", "").format(title=title, season_episode=season_episode)
     else:
         season_episode = ""
-        final_filename = f"{safe_title}.{quality}_[@XTVglobal].mkv"
+
+        if is_subtitle:
+            final_filename = f"{safe_title}.{year}.{language}.srt"
+        else:
+            final_filename = f"{safe_title}.{quality}_[@XTVglobal].mkv"
+
         meta_title = templates.get("title", "").format(title=title, season_episode="").strip()
 
     metadata_dict = {
@@ -143,7 +162,7 @@ async def process_file(client, message, data):
         input_path=file_path,
         output_path=output_path,
         metadata=metadata_dict,
-        thumbnail_path=thumb_path if os.path.exists(thumb_path) else None
+        thumbnail_path=thumb_path if (os.path.exists(thumb_path) and not is_subtitle) else None
     )
 
     if not cmd:

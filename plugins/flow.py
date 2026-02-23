@@ -50,7 +50,31 @@ async def handle_type_selection(client, callback_query):
 
 @Client.on_callback_query(filters.regex(r"^type_subtitles$"))
 async def handle_type_subtitles(client, callback_query):
-    await callback_query.answer("Subtitles feature coming soon!", show_alert=True)
+    await callback_query.message.edit_text(
+        "**Select Subtitle Type**\n\n"
+        "Is this for a Movie or a Series?",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎬 Movie", callback_data="type_sub_movie"),
+             InlineKeyboardButton("📺 Series", callback_data="type_sub_series")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="cancel_rename")]
+        ])
+    )
+
+@Client.on_callback_query(filters.regex(r"^type_sub_(movie|series)$"))
+async def handle_subtitle_type_selection(client, callback_query):
+    user_id = callback_query.from_user.id
+    media_type = callback_query.data.split("_")[2]
+    logger.info(f"User {user_id} selected subtitle type: {media_type}")
+
+    update_data(user_id, "type", media_type)
+    update_data(user_id, "is_subtitle", True)
+    set_state(user_id, f"awaiting_search_{media_type}")
+
+    await callback_query.message.edit_text(
+        f"🔍 **Search {media_type.capitalize()} (Subtitles)**\n\n"
+        f"Please enter the name of the {media_type}.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="cancel_rename")]])
+    )
 
 async def search_handler(client, message, media_type):
     query = message.text
@@ -97,10 +121,15 @@ async def season_handler(client, message):
 
     season = int(text)
     update_data(user_id, "season", season)
-    set_state(user_id, "awaiting_file_upload")
 
     data = get_data(user_id)
     title = data.get("title")
+
+    if data.get("is_subtitle"):
+        await initiate_language_selection(client, user_id, message)
+        return
+
+    set_state(user_id, "awaiting_file_upload")
 
     await message.reply_text(
         f"**Season {season} Confirmed** for {title}.\n\n"
@@ -130,6 +159,20 @@ async def handle_text_input(client, message):
         await search_handler(client, message, "series")
     elif state == "awaiting_season":
         await season_handler(client, message)
+
+    elif state == "awaiting_language_custom":
+        lang = message.text.strip().lower()
+        if len(lang) > 10 or not lang.replace("-", "").isalnum():
+             await message.reply_text("Invalid language code. Keep it short (e.g. 'en', 'pt-br').")
+             return
+
+        update_data(user_id, "language", lang)
+        set_state(user_id, "awaiting_file_upload")
+        await message.reply_text(
+            f"**Language Selected:** `{lang}`\n\n"
+            "Please **forward the subtitle file(s)** (.srt, .ass, etc.).",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Done / Cancel", callback_data="cancel_rename")]])
+        )
 
     elif state.startswith("awaiting_episode_correction_"):
         msg_id = int(state.split("_")[-1])
@@ -187,13 +230,61 @@ async def handle_tmdb_selection(client, callback_query):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="cancel_rename")]])
         )
     else:
-        set_state(user_id, "awaiting_file_upload")
+        data = get_data(user_id)
+        if data.get("is_subtitle"):
+            await initiate_language_selection(client, user_id, callback_query.message)
+        else:
+            set_state(user_id, "awaiting_file_upload")
+            await callback_query.message.edit_text(
+                f"**Selected Movie:** {title} ({year})\n\n"
+                "Please **forward the file(s)** you want to rename.\n"
+                "You can forward multiple files.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Done / Cancel", callback_data="cancel_rename")]])
+            )
+
+async def initiate_language_selection(client, user_id, message_obj):
+    set_state(user_id, "awaiting_language")
+    buttons = [
+        [InlineKeyboardButton("🇺🇸 English", callback_data="lang_en"),
+         InlineKeyboardButton("🇩🇪 German", callback_data="lang_de")],
+        [InlineKeyboardButton("🇫🇷 French", callback_data="lang_fr"),
+         InlineKeyboardButton("🇪🇸 Spanish", callback_data="lang_es")],
+        [InlineKeyboardButton("🇮🇹 Italian", callback_data="lang_it"),
+         InlineKeyboardButton("✍️ Custom", callback_data="lang_custom")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="cancel_rename")]
+    ]
+
+    text = "**Select Subtitle Language**\n\nChoose a language or select 'Custom' to type a code (e.g. por, rus)."
+
+    if isinstance(message_obj, str):
+        await client.send_message(user_id, text, reply_markup=InlineKeyboardMarkup(buttons))
+    elif hasattr(message_obj, "edit_text"):
+        await message_obj.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+    else:
+        await message_obj.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+
+@Client.on_callback_query(filters.regex(r"^lang_"))
+async def handle_language_callback(client, callback_query):
+    user_id = callback_query.from_user.id
+    data = callback_query.data.split("_")[1]
+
+    if data == "custom":
+        set_state(user_id, "awaiting_language_custom")
         await callback_query.message.edit_text(
-            f"**Selected Movie:** {title} ({year})\n\n"
-            "Please **forward the file(s)** you want to rename.\n"
-            "You can forward multiple files.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Done / Cancel", callback_data="cancel_rename")]])
+            "✍️ **Enter Custom Language Code**\n\n"
+            "Please type the language code (e.g. `por`, `hin`, `jpn`, `pt-br`):",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="cancel_rename")]])
         )
+        return
+
+    update_data(user_id, "language", data)
+    set_state(user_id, "awaiting_file_upload")
+
+    await callback_query.message.edit_text(
+        f"**Language Selected:** `{data}`\n\n"
+        "Please **forward the subtitle file(s)** (.srt, .ass, etc.).",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Done / Cancel", callback_data="cancel_rename")]])
+    )
 
 @Client.on_callback_query(filters.regex(r"^cancel_rename$"))
 async def handle_cancel(client, callback_query):
@@ -238,12 +329,16 @@ async def handle_file_upload(client, message):
 
     msg = await message.reply_text("Processing file...", quote=True)
 
+    # Store language if subtitle
+    lang = session_data.get("language", "en") if session_data.get("is_subtitle") else None
+
     file_sessions[msg.id] = {
         "file_message": message,
         "quality": quality,
         "episode": episode,
         "season": season,
-        "original_name": file_name
+        "original_name": file_name,
+        "language": lang
     }
 
     await update_confirmation_message(client, msg.id, user_id)
@@ -253,13 +348,21 @@ async def update_confirmation_message(client, msg_id, user_id):
 
     fs = file_sessions[msg_id]
     sd = get_data(user_id)
+    is_sub = sd.get("is_subtitle")
 
     text = f"📄 **File:** `{fs['original_name']}`\n\n"
-    text += f"**Detected Quality:** `{fs['quality']}`\n"
+
+    if is_sub:
+        text += f"**Language:** `{fs.get('language')}`\n"
+    else:
+        text += f"**Detected Quality:** `{fs['quality']}`\n"
 
     buttons = []
     row1 = [InlineKeyboardButton("✅ Accept", callback_data=f"confirm_{msg_id}")]
-    row2 = [InlineKeyboardButton("Change Quality", callback_data=f"qual_menu_{msg_id}")]
+    row2 = []
+
+    if not is_sub:
+        row2.append(InlineKeyboardButton("Change Quality", callback_data=f"qual_menu_{msg_id}"))
 
     if sd.get("type") == "series":
         text += f"**Season:** `{fs['season']}` | **Episode:** `E{fs['episode']:02d}`\n"

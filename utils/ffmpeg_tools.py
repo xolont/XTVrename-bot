@@ -58,16 +58,23 @@ async def generate_ffmpeg_command(input_path, output_path, metadata, thumbnail_p
     out_audio_idx = 0
     out_subtitle_idx = 0
 
+    is_subtitle_output = output_path.endswith(".srt")
+
     # Iterate input streams (Input 0)
     for i, stream in enumerate(input_streams):
         disposition = stream.get("disposition", {})
         if disposition.get("attached_pic") == 1:
             continue
 
+        codec_type = stream["codec_type"]
+
+        # If outputting to SRT, only map subtitle streams
+        if is_subtitle_output and codec_type != "subtitle":
+            continue
+
         # Map this stream
         maps.extend(["-map", f"0:{stream['index']}"])
 
-        codec_type = stream["codec_type"]
         tags = stream.get("tags", {})
         lang_code = tags.get("language", "und")
         lang_name = get_language_name(lang_code)
@@ -120,7 +127,12 @@ async def generate_ffmpeg_command(input_path, output_path, metadata, thumbnail_p
     # Order: [Base] [Maps] [-c copy] [Thumb Overrides] [Metadata] [Output]
 
     cmd.extend(maps)
-    cmd.extend(["-c", "copy"]) # Default copy
+
+    if is_subtitle_output:
+        cmd.extend(["-c", "srt"])
+    else:
+        cmd.extend(["-c", "copy"]) # Default copy
+
     cmd.extend(thumb_args)     # Override for thumb
     cmd.extend(metadata_args)  # Stream metadata
     cmd.extend(global_meta)    # Global metadata
