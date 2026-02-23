@@ -4,6 +4,7 @@ from utils.tmdb import tmdb
 from utils.auth import auth_filter
 from utils.state import set_state, get_state, update_data, get_data, clear_session
 from plugins.process import process_file
+from utils.detect import analyze_filename, auto_match_tmdb
 from config import Config
 from utils.log import get_logger
 import asyncio
@@ -217,6 +218,38 @@ async def handle_text_input(client, message):
             else:
                 await message.reply_text("Invalid number. Try again.")
 
+    elif state.startswith("awaiting_search_correction_"):
+        msg_id = int(state.split("_")[-1])
+        if msg_id in file_sessions:
+            fs = file_sessions[msg_id]
+            query = message.text
+            mtype = fs['type']
+
+            msg = await message.reply_text(f"🔍 Searching {mtype} for '{query}'...")
+
+            try:
+                if mtype == "series":
+                    results = await tmdb.search_tv(query)
+                else:
+                    results = await tmdb.search_movie(query)
+            except Exception as e:
+                await msg.edit_text(f"Error: {e}")
+                return
+
+            if not results:
+                await msg.edit_text("No results found.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data=f"back_confirm_{msg_id}")]]))
+                return
+
+            buttons = []
+            for item in results:
+                buttons.append([InlineKeyboardButton(
+                    f"{item['title']} ({item['year']})",
+                    callback_data=f"correct_tmdb_{msg_id}_{item['id']}"
+                )])
+            buttons.append([InlineKeyboardButton("Cancel", callback_data=f"back_confirm_{msg_id}")])
+
+            await msg.edit_text(f"Select correct {mtype}:", reply_markup=InlineKeyboardMarkup(buttons))
+
 @Client.on_callback_query(filters.regex(r"^sel_tmdb_(movie|series)_(\d+)$"))
 async def handle_tmdb_selection(client, callback_query):
     user_id = callback_query.from_user.id
@@ -324,8 +357,11 @@ async def handle_file_upload(client, message):
         return
 
     if state != "awaiting_file_upload":
+        if state is None:
+            await handle_auto_detection(client, message)
         return
 
+    # Existing manual flow processing
     file_name = message.document.file_name if message.document else message.video.file_name
     if not file_name:
         file_name = "unknown.mkv"
@@ -367,10 +403,118 @@ async def handle_file_upload(client, message):
 
     await update_confirmation_message(client, msg.id, user_id)
 
+async def handle_auto_detection(client, message):
+    msg = await message.reply_text("🔍 **Executing Transcoding Matrix...**\nRunning deep scan on filename...", quote=True)
+
+    file_name = message.document.file_name if message.document else message.video.file_name
+    if not file_name: file_name = "unknown.mkv"
+
+    # Analyze
+    metadata = analyze_filename(file_name)
+    tmdb_data = await auto_match_tmdb(metadata)
+
+    if not tmdb_data:
+        await msg.edit_text(
+            f"⚠️ **Detection Failed**\n\nCould not automatically match `{file_name}` with TMDb.\n"
+            "Please use /start to rename manually.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="cancel_rename")]])
+        )
+        return
+
+    # Construct session data
+    is_subtitle = metadata['is_subtitle']
+
+    # Defaults
+    quality = metadata['quality']
+    episode = metadata.get('episode', 1) or 1
+    season = metadata.get('season', 1) or 1
+    lang = metadata.get('language', 'en')
+
+    # Store in file_sessions (including TMDB info, effectively bypassing user session state)
+    file_sessions[msg.id] = {
+        "file_message": message,
+        "original_name": file_name,
+        "quality": quality,
+        "episode": episode,
+        "season": season,
+        "language": lang,
+        # Auto-detect fields that normally live in user session
+        "tmdb_id": tmdb_data['tmdb_id'],
+        "title": tmdb_data['title'],
+        "year": tmdb_data['year'],
+        "poster": tmdb_data['poster'],
+        "type": tmdb_data['type'],
+        "is_subtitle": is_subtitle,
+        "is_auto": True # Flag to know this was auto-detected
+    }
+
+    await update_auto_detected_message(client, msg.id, message.from_user.id)
+
+async def update_auto_detected_message(client, msg_id, user_id):
+    if msg_id not in file_sessions: return
+    fs = file_sessions[msg_id]
+
+    media_type = "TV Show" if fs['type'] == "series" else "Movie"
+    if fs['is_subtitle']: media_type += " (Subtitle)"
+
+    text = (
+        f"✅ **Detected {media_type}**\n\n"
+        f"**Title:** {fs['title']} ({fs['year']})\n"
+        f"**File:** `{fs['original_name']}`\n"
+    )
+
+    if fs['is_subtitle']:
+        text += f"**Language:** `{fs['language']}`\n"
+    else:
+        text += f"**Quality:** `{fs['quality']}`\n"
+
+    if fs['type'] == "series":
+        text += f"**Season:** `{fs['season']}` | **Episode:** `E{fs['episode']:02d}`\n"
+
+    buttons = []
+
+    # Row 1: Accept
+    buttons.append([InlineKeyboardButton("✅ Accept", callback_data=f"confirm_{msg_id}")])
+
+    # Row 2: Changes
+    row2 = []
+    row2.append(InlineKeyboardButton("Change Type", callback_data=f"change_type_{msg_id}")) # Movie <-> Series
+    if fs['type'] == "series":
+        row2.append(InlineKeyboardButton("Change Show", callback_data=f"change_tmdb_{msg_id}"))
+    else:
+        row2.append(InlineKeyboardButton("Change Movie", callback_data=f"change_tmdb_{msg_id}"))
+    buttons.append(row2)
+
+    # Row 3: More Changes
+    row3 = []
+    if fs['type'] == "series":
+        row3.append(InlineKeyboardButton("S/E", callback_data=f"change_se_{msg_id}")) # Helper menu for S/E
+    if not fs['is_subtitle']:
+        row3.append(InlineKeyboardButton("Quality", callback_data=f"qual_menu_{msg_id}"))
+    buttons.append(row3)
+
+    buttons.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancel_file_{msg_id}")])
+
+    await client.edit_message_text(
+        chat_id=user_id,
+        message_id=msg_id,
+        text=text,
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
 async def update_confirmation_message(client, msg_id, user_id):
     if msg_id not in file_sessions: return
 
     fs = file_sessions[msg_id]
+
+    # Check if this is an auto-detect session to use the new UI?
+    # Or keep consistent? The request asked for "Detected Movie..." UI.
+    # If "is_auto" is present, use update_auto_detected_message?
+    if fs.get("is_auto"):
+        await update_auto_detected_message(client, msg_id, user_id)
+        return
+
+    # Fallback to existing logic for manual flow (re-implemented here because I overwrote the file)
     sd = get_data(user_id)
     is_sub = sd.get("is_subtitle")
 
@@ -415,10 +559,14 @@ async def handle_confirm(client, callback_query):
         return
 
     fs = file_sessions.pop(msg_id)
-    sd = get_data(user_id)
 
-    full_data = sd.copy()
-    full_data.update(fs)
+    if fs.get("is_auto"):
+        # Use fs as the full data source
+        full_data = fs
+    else:
+        sd = get_data(user_id)
+        full_data = sd.copy()
+        full_data.update(fs)
 
     await process_file(client, callback_query.message, full_data)
 
@@ -481,3 +629,102 @@ async def handle_file_cancel(client, callback_query):
     msg_id = int(callback_query.data.split("_")[2])
     file_sessions.pop(msg_id, None)
     await callback_query.message.delete()
+
+# New Handlers for Auto-Detect Menu
+
+@Client.on_callback_query(filters.regex(r"^change_type_(\d+)$"))
+async def handle_change_type(client, callback_query):
+    msg_id = int(callback_query.data.split("_")[2])
+    if msg_id not in file_sessions: return
+
+    # Cycle: Movie -> Series -> Subtitle (Movie) -> Subtitle (Series) -> Movie?
+    # Or simplified: Movie <-> Series. And toggle Subtitle separately?
+    # User said: "Change File Type (halt ob movie, series oder subtitle)"
+
+    fs = file_sessions[msg_id]
+    current_type = fs['type']
+    is_sub = fs['is_subtitle']
+
+    # Logic to cycle
+    # 1. Movie -> Series
+    # 2. Series -> Subtitle (Movie)
+    # 3. Subtitle (Movie) -> Subtitle (Series)
+    # 4. Subtitle (Series) -> Movie
+
+    if not is_sub and current_type == "movie":
+        fs['type'] = "series"
+        fs['is_subtitle'] = False
+    elif not is_sub and current_type == "series":
+        fs['type'] = "movie"
+        fs['is_subtitle'] = True
+        fs['language'] = "en" # Default
+    elif is_sub and current_type == "movie":
+        fs['type'] = "series"
+        fs['is_subtitle'] = True
+    elif is_sub and current_type == "series":
+        fs['type'] = "movie"
+        fs['is_subtitle'] = False
+
+    await update_auto_detected_message(client, msg_id, callback_query.from_user.id)
+
+@Client.on_callback_query(filters.regex(r"^change_tmdb_(\d+)$"))
+async def handle_change_tmdb_init(client, callback_query):
+    msg_id = int(callback_query.data.split("_")[2])
+    user_id = callback_query.from_user.id
+
+    # We need to trigger a search, but we need to know which file we are searching for.
+    # We can use a temporary state like "awaiting_search_correction_{msg_id}"
+
+    set_state(user_id, f"awaiting_search_correction_{msg_id}")
+    fs = file_sessions[msg_id]
+    mtype = fs['type']
+
+    await callback_query.message.edit_text(
+        f"🔍 **Search {mtype.capitalize()}**\n\n"
+        "Please enter the correct name:",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data=f"back_confirm_{msg_id}")]])
+    )
+
+@Client.on_callback_query(filters.regex(r"^change_se_(\d+)$"))
+async def handle_change_se_menu(client, callback_query):
+    msg_id = int(callback_query.data.split("_")[2])
+
+    await callback_query.message.edit_text(
+        "Select what to change:",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("Change Season", callback_data=f"season_change_{msg_id}"),
+             InlineKeyboardButton("Change Episode", callback_data=f"ep_change_{msg_id}")],
+            [InlineKeyboardButton("🔙 Back", callback_data=f"back_confirm_{msg_id}")]
+        ])
+    )
+
+@Client.on_callback_query(filters.regex(r"^correct_tmdb_(\d+)_(\d+)$"))
+async def handle_correct_tmdb_selection(client, callback_query):
+    data = callback_query.data.split("_")
+    msg_id = int(data[2])
+    tmdb_id = data[3]
+
+    if msg_id not in file_sessions: return
+    fs = file_sessions[msg_id]
+
+    # Fetch details
+    try:
+        details = await tmdb.get_details(fs['type'], tmdb_id)
+    except:
+        return
+
+    title = details.get("title") if fs['type'] == "movie" else details.get("name")
+    year = (details.get("release_date") if fs['type'] == "movie" else details.get("first_air_date", ""))[:4]
+    poster = f"https://image.tmdb.org/t/p/w500{details.get('poster_path')}" if details.get("poster_path") else None
+
+    fs['tmdb_id'] = tmdb_id
+    fs['title'] = title
+    fs['year'] = year
+    fs['poster'] = poster
+
+    # Clear state
+    set_state(callback_query.from_user.id, None)
+
+    # Delete the search result message and update original
+    await callback_query.message.delete()
+    await update_auto_detected_message(client, msg_id, callback_query.from_user.id)
