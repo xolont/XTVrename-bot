@@ -344,7 +344,15 @@ async def handle_language_callback(client, callback_query):
 async def handle_cancel(client, callback_query):
     user_id = callback_query.from_user.id
     clear_session(user_id)
-    await callback_query.message.edit_text("Renaming cancelled. Use /start to begin again.")
+    await callback_query.message.edit_text(
+        "**Current Task Cancelled** ❌\n\n"
+        "Your progress has been cleared.\n"
+        "You can simply send me a file anytime to start over, or use the buttons below.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎬 Start Renaming Manually", callback_data="start_renaming")],
+            [InlineKeyboardButton("📖 Help & Guide", callback_data="help_guide")]
+        ])
+    )
 
 # --- File Handling ---
 
