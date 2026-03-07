@@ -29,9 +29,32 @@ async def handle_start_renaming(client, callback_query):
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("🎬 Movie", callback_data="type_movie"),
              InlineKeyboardButton("📺 Series", callback_data="type_series")],
+            [InlineKeyboardButton("📹 Personal Video", callback_data="type_personal_video"),
+             InlineKeyboardButton("📸 Personal Photo/File", callback_data="type_personal_file")],
             [InlineKeyboardButton("📝 Subtitles", callback_data="type_subtitles")],
             [InlineKeyboardButton("❌ Cancel", callback_data="cancel_rename")]
         ])
+    )
+
+@Client.on_callback_query(filters.regex(r"^type_personal_(video|file)$"))
+async def handle_type_personal(client, callback_query):
+    user_id = callback_query.from_user.id
+    personal_type = callback_query.data.split("_")[2]
+    logger.info(f"User {user_id} selected personal type: {personal_type}")
+
+    # For personal files, we store type as "movie" to use standard, non-episodic filename logic
+    update_data(user_id, "type", "movie")
+    update_data(user_id, "tmdb_id", None) # No TMDb
+
+    set_state(user_id, "awaiting_manual_title")
+
+    label = "Video" if personal_type == "video" else "Photo/File"
+    await callback_query.message.edit_text(
+        f"✍️ **Personal {label} Details**\n\n"
+        "Please enter the name you want to use for this file.\n"
+        "Format: `Title (Year)` or just `Title`\n"
+        "Example: `Family Vacation Hawaii (2024)`",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="cancel_rename")]])
     )
 
 @Client.on_callback_query(filters.regex(r"^type_(movie|series)$"))
