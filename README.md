@@ -81,16 +81,52 @@ Create a `.env` file in the root directory:
 | `BOT_TOKEN` | Bot Token from @BotFather | ✅ |
 | `MAIN_URI` | MongoDB Connection String | ✅ |
 | `CEO_ID` | Your Telegram User ID (Admin) | ✅ |
-| `FRANCHISEE_IDS` | Allowed User IDs (comma separated) | ❌ |
+| `ADMIN_IDS` | Allowed User IDs (comma separated) (Formerly FRANCHISEE_IDS) | ❌ |
+| `PUBLIC_MODE` | Set to `True` to allow anyone to use the bot. | ❌ |
 | `TMDB_API_KEY` | TMDb API Key for metadata | ✅ |
 | `USER_SESSION` | Pyrogram String Session for Userbot (XTV Pro™) | ❌ |
 
 > **Note:** To generate a `USER_SESSION` string, run `python3 generate_session.py` locally.
 
+## 🌍 Public Mode vs Private Mode
+
+The XTV Rename Bot can operate in two distinct modes via the `PUBLIC_MODE` environment variable. **It is highly recommended to choose a mode initially and stick with it**, as the database structure and bot functionality changes drastically between the two.
+
+### 🔒 Private Mode (`PUBLIC_MODE=False` - Default)
+* **Access**: Only the `CEO_ID` and `ADMIN_IDS` can use the bot.
+* **Settings**: Global. The `/admin` command configures one global thumbnail, one set of filename templates, and one caption template for all files processed.
+* **Commands for BotFather**:
+  ```text
+  start - Start the bot
+  help - How to use the bot
+  admin - Access the Admin Panel (Global Settings)
+  end - Cancel the current task
+  ```
+
+### 🔓 Public Mode (`PUBLIC_MODE=True`)
+* **Access**: Anyone can use the bot!
+* **User-Specific Settings**: Every user gets their own profile. Users can use the `/settings` command to set their own custom thumbnails, filename templates, and metadata templates without affecting others.
+* **CEO Controls**: The `/admin` command transforms into a global configuration panel for the CEO. The CEO can set:
+  * **Force-Sub Channel**: Require users to join a specific channel before using the bot.
+  * **Rate Limits**: Set a delay (in seconds) between file uploads to prevent spam.
+  * **Bot Branding**: Customize the bot name and community name displayed to users.
+  * **Support Contact**: Define a contact link for the `/info` command.
+* **Commands for BotFather**:
+  ```text
+  start - Start the bot
+  help - How to use the bot
+  settings - Customize your personal templates and thumbnail
+  info - View bot info and support contact
+  admin - Access Global Configurations (CEO Only)
+  end - Cancel the current task
+  ```
+
 ## 🎮 Usage
 
 *   **/start**: Check bot status and ping.
-*   **/admin**: Access the **Admin Panel** to configure thumbnails, templates, and settings.
+*   **/admin**: Access the **Admin Panel** to configure global settings.
+*   **/settings**: Access **Personal Settings** to configure your own templates and thumbnails (Public Mode only).
+*   **/info**: View bot details and support info (Public Mode only).
 *   **/end**: Clear current session state (useful to reset auto-detection).
 
 **Workflow:**

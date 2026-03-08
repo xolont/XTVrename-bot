@@ -13,20 +13,39 @@ def is_admin(user_id):
 async def admin_panel(client, message):
     if not is_admin(message.from_user.id):
         return
-    await message.reply_text(
-        "🛠 **XTV Admin Panel** 🛠\n\n"
-        "Welcome, CEO.\n"
-        "Manage global settings for the XTV Rename Bot.\n"
-        "These settings affect all files processed by the bot.",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🖼 Manage Thumbnail", callback_data="admin_thumb_menu")],
-            [InlineKeyboardButton("📝 Edit Metadata Templates", callback_data="admin_templates")],
-            [InlineKeyboardButton("📝 Edit Filename Templates", callback_data="admin_filename_templates")],
-            [InlineKeyboardButton("📝 Edit Caption Template", callback_data="admin_caption")],
-            [InlineKeyboardButton("⚙️ Settings", callback_data="admin_settings")],
-            [InlineKeyboardButton("👀 View Current Settings", callback_data="admin_view")]
-        ])
-    )
+
+    if Config.PUBLIC_MODE:
+        await message.reply_text(
+            "🛠 **Public Mode Admin Panel** 🛠\n\n"
+            "Welcome, CEO.\n"
+            "Manage global settings for Public Mode.\n"
+            "These settings apply globally to the bot, such as branding and rate limits.\n"
+            "*(Use /settings to configure your personal renaming templates)*",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🤖 Edit Bot Name", callback_data="admin_public_bot_name"),
+                 InlineKeyboardButton("👥 Edit Community Name", callback_data="admin_public_community_name")],
+                [InlineKeyboardButton("🔗 Edit Support Contact", callback_data="admin_public_support_contact"),
+                 InlineKeyboardButton("📢 Edit Force-Sub Channel", callback_data="admin_public_force_sub")],
+                [InlineKeyboardButton("⏱ Edit Rate Limits", callback_data="admin_public_rate_limit")],
+                [InlineKeyboardButton("👀 View Public Config", callback_data="admin_public_view")]
+            ])
+        )
+    else:
+        await message.reply_text(
+            "🛠 **XTV Admin Panel** 🛠\n\n"
+            "Welcome, CEO.\n"
+            "Manage global settings for the XTV Rename Bot.\n"
+            "These settings affect all files processed by the bot.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🖼 Manage Thumbnail", callback_data="admin_thumb_menu")],
+                [InlineKeyboardButton("📝 Edit Metadata Templates", callback_data="admin_templates")],
+                [InlineKeyboardButton("📝 Edit Filename Templates", callback_data="admin_filename_templates")],
+                [InlineKeyboardButton("📝 Edit Caption Template", callback_data="admin_caption")],
+                [InlineKeyboardButton("⚙️ Settings", callback_data="admin_settings")],
+                [InlineKeyboardButton("👀 View Current Settings", callback_data="admin_view")]
+            ])
+        )
+
 @Client.on_callback_query(filters.regex(r"^(admin_|edit_template_|edit_fn_template_)"))
 async def admin_callback(client, callback_query):
     user_id = callback_query.from_user.id
@@ -34,6 +53,63 @@ async def admin_callback(client, callback_query):
         return
     data = callback_query.data
     logger.info(f"Admin callback: {data} from user {user_id}")
+
+    # Handle Public Mode Callbacks first
+    if Config.PUBLIC_MODE and data.startswith("admin_public_"):
+        if data == "admin_public_view":
+            config = await db.get_public_config()
+            text = "👀 **Public Mode Config**\n\n"
+            text += f"**Bot Name:** {config.get('bot_name', 'Not set')}\n"
+            text += f"**Community Name:** {config.get('community_name', 'Not set')}\n"
+            text += f"**Support Contact:** {config.get('support_contact', 'Not set')}\n"
+            text += f"**Force-Sub Channel:** {config.get('force_sub_channel', 'Not set')}\n"
+            text += f"**Rate Limit Delay:** {config.get('rate_limit_delay', 0)} seconds\n"
+
+            await callback_query.message.edit_text(
+                text,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_main")]])
+            )
+            return
+
+        elif data == "admin_public_bot_name":
+            admin_sessions[user_id] = "awaiting_public_bot_name"
+            await callback_query.message.edit_text(
+                "🤖 **Edit Bot Name**\n\nEnter the new bot name (e.g., 'AlphaBotz Rename Bot'):",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_main")]])
+            )
+            return
+
+        elif data == "admin_public_community_name":
+            admin_sessions[user_id] = "awaiting_public_community_name"
+            await callback_query.message.edit_text(
+                "👥 **Edit Community Name**\n\nEnter the new community name (e.g., 'AlphaBotz Community'):",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_main")]])
+            )
+            return
+
+        elif data == "admin_public_support_contact":
+            admin_sessions[user_id] = "awaiting_public_support_contact"
+            await callback_query.message.edit_text(
+                "🔗 **Edit Support Contact**\n\nEnter the support contact (e.g., '@davdxpx' or a link):",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_main")]])
+            )
+            return
+
+        elif data == "admin_public_force_sub":
+            admin_sessions[user_id] = "awaiting_public_force_sub"
+            await callback_query.message.edit_text(
+                "📢 **Edit Force-Sub Channel**\n\nEnter the channel username (e.g., '@MyChannel') or ID.\nSend `disable` to disable Force-Sub.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_main")]])
+            )
+            return
+
+        elif data == "admin_public_rate_limit":
+            admin_sessions[user_id] = "awaiting_public_rate_limit"
+            await callback_query.message.edit_text(
+                "⏱ **Edit Rate Limit**\n\nEnter the delay in seconds between requests for users (e.g., `60`).\nSend `0` to disable.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_main")]])
+            )
+            return
     if data == "admin_thumb_menu":
         await callback_query.message.edit_text(
             "🖼 **Manage Thumbnail**\n\n"
@@ -186,20 +262,37 @@ async def admin_callback(client, callback_query):
         )
     elif data == "admin_main" or data == "admin_cancel":
         admin_sessions.pop(user_id, None)
-        await callback_query.message.edit_text(
-            "🛠 **XTV Admin Panel** 🛠\n\n"
-            "Welcome, CEO.\n"
-            "Manage global settings for the XTV Rename Bot.\n"
-            "These settings affect all files processed by the bot.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🖼 Manage Thumbnail", callback_data="admin_thumb_menu")],
-                [InlineKeyboardButton("📝 Edit Metadata Templates", callback_data="admin_templates")],
-            [InlineKeyboardButton("📝 Edit Filename Templates", callback_data="admin_filename_templates")],
-                [InlineKeyboardButton("📝 Edit Caption Template", callback_data="admin_caption")],
-            [InlineKeyboardButton("⚙️ Settings", callback_data="admin_settings")],
-                [InlineKeyboardButton("👀 View Current Settings", callback_data="admin_view")]
-            ])
-        )
+        if Config.PUBLIC_MODE:
+            await callback_query.message.edit_text(
+                "🛠 **Public Mode Admin Panel** 🛠\n\n"
+                "Welcome, CEO.\n"
+                "Manage global settings for Public Mode.\n"
+                "These settings apply globally to the bot, such as branding and rate limits.\n"
+                "*(Use /settings to configure your personal renaming templates)*",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🤖 Edit Bot Name", callback_data="admin_public_bot_name"),
+                     InlineKeyboardButton("👥 Edit Community Name", callback_data="admin_public_community_name")],
+                    [InlineKeyboardButton("🔗 Edit Support Contact", callback_data="admin_public_support_contact"),
+                     InlineKeyboardButton("📢 Edit Force-Sub Channel", callback_data="admin_public_force_sub")],
+                    [InlineKeyboardButton("⏱ Edit Rate Limits", callback_data="admin_public_rate_limit")],
+                    [InlineKeyboardButton("👀 View Public Config", callback_data="admin_public_view")]
+                ])
+            )
+        else:
+            await callback_query.message.edit_text(
+                "🛠 **XTV Admin Panel** 🛠\n\n"
+                "Welcome, CEO.\n"
+                "Manage global settings for the XTV Rename Bot.\n"
+                "These settings affect all files processed by the bot.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🖼 Manage Thumbnail", callback_data="admin_thumb_menu")],
+                    [InlineKeyboardButton("📝 Edit Metadata Templates", callback_data="admin_templates")],
+                    [InlineKeyboardButton("📝 Edit Filename Templates", callback_data="admin_filename_templates")],
+                    [InlineKeyboardButton("📝 Edit Caption Template", callback_data="admin_caption")],
+                    [InlineKeyboardButton("⚙️ Settings", callback_data="admin_settings")],
+                    [InlineKeyboardButton("👀 View Current Settings", callback_data="admin_view")]
+                ])
+            )
     elif data.startswith("edit_template_"):
         field = data.split("_")[-1]
         admin_sessions[user_id] = f"awaiting_template_{field}"
@@ -238,6 +331,42 @@ async def handle_admin_text(client, message):
     state = admin_sessions.get(user_id)
     if not state:
         return
+
+    # Handle Public Mode settings
+    if state.startswith("awaiting_public_"):
+        field = state.replace("awaiting_public_", "")
+        val = message.text.strip()
+
+        if field == "bot_name":
+            await db.update_public_config("bot_name", val)
+            await message.reply_text(f"✅ Bot Name updated to `{val}`", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="admin_main")]]))
+        elif field == "community_name":
+            await db.update_public_config("community_name", val)
+            await message.reply_text(f"✅ Community Name updated to `{val}`", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="admin_main")]]))
+        elif field == "support_contact":
+            await db.update_public_config("support_contact", val)
+            await message.reply_text(f"✅ Support Contact updated to `{val}`", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="admin_main")]]))
+        elif field == "force_sub":
+            if val.lower() == "disable":
+                await db.update_public_config("force_sub_channel", None)
+                await message.reply_text("✅ Force-Sub disabled.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="admin_main")]]))
+            else:
+                # Basic check for channel format
+                if not val.startswith("@") and not val.startswith("-100"):
+                    await message.reply_text("❌ Invalid format. Must start with '@' or '-100'. Try again.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_main")]]))
+                    return
+                await db.update_public_config("force_sub_channel", val)
+                await message.reply_text(f"✅ Force-Sub channel updated to `{val}`.\nMake sure I am an admin there!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="admin_main")]]))
+        elif field == "rate_limit":
+            if not val.isdigit():
+                await message.reply_text("❌ Invalid number. Try again.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_main")]]))
+                return
+            await db.update_public_config("rate_limit_delay", int(val))
+            await message.reply_text(f"✅ Rate limit updated to `{val}` seconds.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="admin_main")]]))
+
+        admin_sessions.pop(user_id, None)
+        return
+
     if state.startswith("awaiting_template_"):
         field = state.split("_")[-1]
         new_template = message.text

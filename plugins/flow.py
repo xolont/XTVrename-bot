@@ -249,8 +249,9 @@ async def episode_handler(client, message):
 async def handle_text_input(client, message):
     user_id = message.from_user.id
 
-    if not (user_id == Config.CEO_ID or user_id in Config.FRANCHISEE_IDS):
-        return
+    if not Config.PUBLIC_MODE:
+        if not (user_id == Config.CEO_ID or user_id in Config.ADMIN_IDS):
+            return
 
     state = get_state(user_id)
     logger.info(f"Text input from {user_id}: {message.text} | State: {state}")
@@ -529,13 +530,44 @@ async def process_batch(client, user_id):
             await update_confirmation_message(client, msg.id, user_id)
 
 
+from utils.auth import check_force_sub
+from database import db
+
 @Client.on_message((filters.document | filters.video | filters.photo) & filters.private, group=2)
 async def handle_file_upload(client, message):
     user_id = message.from_user.id
     state = get_state(user_id)
 
-    if not (user_id == Config.CEO_ID or user_id in Config.FRANCHISEE_IDS):
-        return
+    if not Config.PUBLIC_MODE:
+        if not (user_id == Config.CEO_ID or user_id in Config.ADMIN_IDS):
+            return
+    else:
+        # Check Force Sub
+        if not await check_force_sub(client, user_id):
+            config = await db.get_public_config()
+            force_sub_channel = config.get("force_sub_channel")
+
+            try:
+                chat_info = await client.get_chat(force_sub_channel)
+                invite_link = chat_info.invite_link or f"https://t.me/{chat_info.username}"
+            except Exception as e:
+                logger.error(f"Failed to fetch invite link: {e}")
+                invite_link = force_sub_channel
+
+            await message.reply_text(
+                "You must join our community channel to use this bot.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Join Channel", url=invite_link)]
+                ])
+            )
+            return
+
+        # Check Rate Limit
+        if not await db.check_rate_limit(user_id):
+            config = await db.get_public_config()
+            delay = config.get("rate_limit_delay", 0)
+            await message.reply_text(f"⏳ **Rate Limited**\n\nPlease wait {delay} seconds between uploads.")
+            return
 
     if state != "awaiting_file_upload":
         if state is None:
