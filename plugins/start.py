@@ -7,6 +7,9 @@ from utils.state import clear_session
 logger = get_logger("plugins.start")
 logger.info("Loading plugins.start...")
 
+from database import db
+from utils.auth import check_force_sub
+
 # Group 0 (Default) - Runs before flow (Group 2)
 # Using regex for explicit command matching to avoid any filter ambiguity
 @Client.on_message(filters.regex(r"^/(start|new)") & filters.private, group=0)
@@ -14,13 +17,43 @@ async def handle_start_command_unique(client, message):
     user_id = message.from_user.id
     logger.info(f"CMD received: {message.text} from {user_id}")
 
-    if not (user_id == Config.CEO_ID or user_id in Config.FRANCHISEE_IDS):
-        logger.warning(f"Unauthorized access by {user_id}")
-        return
+    if not Config.PUBLIC_MODE:
+        if not (user_id == Config.CEO_ID or user_id in Config.ADMIN_IDS):
+            logger.warning(f"Unauthorized access by {user_id}")
+            return
+        bot_name = "**XTV Rename Bot**"
+        community_name = "official XTV"
+    else:
+        # Public Mode checks
+        if not await check_force_sub(client, user_id):
+            config = await db.get_public_config()
+            force_sub_channel = config.get("force_sub_channel")
+            community_name = config.get("community_name", "Our Community")
+
+            # Fetch invite link
+            try:
+                chat_info = await client.get_chat(force_sub_channel)
+                invite_link = chat_info.invite_link or f"https://t.me/{chat_info.username}"
+            except Exception as e:
+                logger.error(f"Failed to fetch invite link: {e}")
+                invite_link = force_sub_channel
+
+            await message.reply_text(
+                f"Welcome to **{community_name}**!\n\n"
+                "You must join our community channel to use this bot.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Join Channel", url=invite_link)]
+                ])
+            )
+            return
+
+        config = await db.get_public_config()
+        bot_name = f"**{config.get('bot_name', 'XTV Rename Bot')}**"
+        community_name = config.get("community_name", "Our Community")
 
     await message.reply_text(
-        "**XTV Rename Bot**\n\n"
-        "Welcome to the official XTV file renaming tool.\n"
+        f"{bot_name}\n\n"
+        f"Welcome to the {community_name} file renaming tool.\n"
         "This bot provides professional renaming and metadata management.\n\n"
         "💡 **Tip:** You don't need to click anything to begin! Simply send or forward a file directly to me, and I will auto-detect the details.\n\n"
         "Click below to start manually or to view the guide.",
@@ -37,7 +70,7 @@ async def handle_help_command_unique(client, message):
 
     await message.reply_text(
         "**📖 Help & Guide**\n\n"
-        "Welcome to the XTV Rename Bot Guide!\n"
+        "Welcome to the Rename Bot Guide!\n"
         "Whether you are organizing a massive media library of popular series and movies, "
         "or just want to rename and manage your **personal home videos** and files, I can help!\n\n"
         "Please select a topic below to learn more:",
@@ -45,7 +78,7 @@ async def handle_help_command_unique(client, message):
             [InlineKeyboardButton("🛠 How to Use", callback_data="help_how_to_use")],
             [InlineKeyboardButton("🤖 Auto-Detect Magic", callback_data="help_auto_detect")],
             [InlineKeyboardButton("📁 Personal Files & Home Videos", callback_data="help_personal")],
-            [InlineKeyboardButton("⚙️ Settings & Admin", callback_data="help_settings")],
+            [InlineKeyboardButton("⚙️ Settings & Info", callback_data="help_settings")],
             [InlineKeyboardButton("❌ Close", callback_data="help_close")]
         ])
     )
@@ -76,7 +109,7 @@ async def handle_help_callbacks(client, callback_query):
     if data == "help_guide":
         await callback_query.message.edit_text(
             "**📖 Help & Guide**\n\n"
-            "Welcome to the XTV Rename Bot Guide!\n"
+            "Welcome to the Rename Bot Guide!\n"
             "Whether you are organizing a massive media library of popular series and movies, "
             "or just want to rename and manage your **personal home videos** and files, I can help!\n\n"
             "Please select a topic below to learn more:",
@@ -84,7 +117,7 @@ async def handle_help_callbacks(client, callback_query):
                 [InlineKeyboardButton("🛠 How to Use", callback_data="help_how_to_use")],
                 [InlineKeyboardButton("🤖 Auto-Detect Magic", callback_data="help_auto_detect")],
                 [InlineKeyboardButton("📁 Personal Files & Home Videos", callback_data="help_personal")],
-                [InlineKeyboardButton("⚙️ Settings & Admin", callback_data="help_settings")],
+                [InlineKeyboardButton("⚙️ Settings & Info", callback_data="help_settings")],
                 [InlineKeyboardButton("❌ Close", callback_data="help_close")]
             ])
         )
@@ -116,15 +149,26 @@ async def handle_help_callbacks(client, callback_query):
             reply_markup=InlineKeyboardMarkup(back_button)
         )
     elif data == "help_settings":
-        await callback_query.message.edit_text(
-            "**⚙️ Settings & Admin**\n\n"
-            "Customize how your files are named and processed.\n\n"
-            "• Use the `/admin` command to access advanced settings.\n"
-            "• Configure custom **Filename Templates** (e.g., `{Title} ({Year}) [{Quality}]`).\n"
-            "• Set a **Default Thumbnail** for all your uploads.\n"
-            "• Customize **Caption Templates** and more!",
-            reply_markup=InlineKeyboardMarkup(back_button)
-        )
+        if Config.PUBLIC_MODE:
+            text = (
+                "**⚙️ Settings & Info**\n\n"
+                "Customize how your files are named and processed.\n\n"
+                "• Use the `/settings` command to access your personal settings.\n"
+                "• Configure custom **Filename Templates** (e.g., `{Title} ({Year}) [{Quality}]`).\n"
+                "• Set your own **Default Thumbnail** or disable it.\n"
+                "• Customize **Caption Templates** and Metadata.\n"
+                "• Use `/info` to see details about this bot and support contact."
+            )
+        else:
+            text = (
+                "**⚙️ Settings & Admin**\n\n"
+                "Customize how your files are named and processed.\n\n"
+                "• Use the `/admin` command to access advanced settings.\n"
+                "• Configure custom **Filename Templates** (e.g., `{Title} ({Year}) [{Quality}]`).\n"
+                "• Set a **Default Thumbnail** for all your uploads.\n"
+                "• Customize **Caption Templates** and more!"
+            )
+        await callback_query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(back_button))
     elif data == "help_close":
         await callback_query.message.delete()
 

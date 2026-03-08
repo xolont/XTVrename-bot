@@ -18,7 +18,10 @@ class Config:
 
     # Access Control
     CEO_ID = int(os.getenv("CEO_ID", 0))
-    FRANCHISEE_IDS = [int(x) for x in os.getenv("FRANCHISEE_IDS", "").split(",") if x.strip()]
+    ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
+
+    # Public Mode
+    PUBLIC_MODE = os.getenv("PUBLIC_MODE", "False").lower() == "true"
 
     # TMDb
     TMDB_API_KEY = os.getenv("TMDB_API_KEY")

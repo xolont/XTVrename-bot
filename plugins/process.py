@@ -140,8 +140,8 @@ class TaskProcessor:
             f"{XTVEngine.get_signature(mode=self.mode)}"
         )
 
-        # Load settings once
-        self.settings = await db.get_settings()
+        # Load settings once (with user_id support for PUBLIC_MODE)
+        self.settings = await db.get_settings(self.user_id)
         if self.settings:
             self.templates = self.settings.get("templates", Config.DEFAULT_TEMPLATES)
             self.filename_templates = self.settings.get("filename_templates", Config.DEFAULT_FILENAME_TEMPLATES)
@@ -151,6 +151,10 @@ class TaskProcessor:
             self.templates = Config.DEFAULT_TEMPLATES
             self.filename_templates = Config.DEFAULT_FILENAME_TEMPLATES
             self.channel = Config.DEFAULT_CHANNEL
+
+        # Update rate limit if in Public Mode
+        if Config.PUBLIC_MODE:
+            await db.update_rate_limit(self.user_id)
 
         return True
 
