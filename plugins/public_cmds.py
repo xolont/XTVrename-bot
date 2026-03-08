@@ -78,10 +78,10 @@ async def settings_panel(client, message):
         ])
     )
 
-@Client.on_callback_query(filters.regex(r"^(user_|edit_user_template_|edit_user_fn_template_|prompt_user_)"))
+@Client.on_callback_query(filters.regex(r"^(user_|edit_user_template_|edit_user_fn_template_|prompt_user_.*)"))
 async def user_settings_callback(client, callback_query):
     if not is_public_mode():
-        return
+        raise ContinuePropagation
 
     user_id = callback_query.from_user.id
     data = callback_query.data
