@@ -36,13 +36,24 @@ async def info_command(client, message):
     if not channel_link:
         channel_link = "Not configured"
 
-    text = f"**ℹ️ {bot_name} Info**\n\n"
-    text += f"**Community:** {community_name}\n"
-    text += f"**Channel Link:** {channel_link}\n"
-    text += f"**Support Contact:** {support_contact}\n\n"
-    text += f"------------------------\n"
-    text += f"**Powered by:** 𝕏TV\n"
-    text += f"**Developed by:** [𝕏0L0™](https://t.me/davdxpx)\n"
+    text = f"**ℹ️ {bot_name} Information**\n"
+    text += f"━━━━━━━━━━━━━━━━━━━━\n\n"
+
+    text += f"**💡 About This Bot**\n"
+    text += f"Your ultimate media processing tool. Easily rename, format, and organize your files with professional metadata injection and custom thumbnails.\n\n"
+
+    text += f"**📊 System Details**\n"
+    text += f"• **Version:** `v2.0.0 (Public Edition)`\n"
+    text += f"• **Status:** `Online & Operational`\n"
+    text += f"• **Community:** `{community_name}`\n\n"
+
+    text += f"**📞 Help & Support**\n"
+    text += f"• **Support Contact:** {support_contact}\n"
+    text += f"• **Community Link:** {channel_link}\n\n"
+
+    text += f"━━━━━━━━━━━━━━━━━━━━\n"
+    text += f"**⚡ Powered by:** [𝕏TV](https://t.me/XTVglobal)\n"
+    text += f"**👨‍💻 Developed by:** [𝕏0L0™](https://t.me/davdxpx)\n"
 
     await message.reply_text(text, disable_web_page_preview=True)
 
@@ -67,7 +78,7 @@ async def settings_panel(client, message):
         ])
     )
 
-@Client.on_callback_query(filters.regex(r"^(user_|edit_user_template_|edit_user_fn_template_)"))
+@Client.on_callback_query(filters.regex(r"^(user_|edit_user_template_|edit_user_fn_template_|prompt_user_)"))
 async def user_settings_callback(client, callback_query):
     if not is_public_mode():
         return
@@ -110,11 +121,19 @@ async def user_settings_callback(client, callback_query):
         else:
             await callback_query.answer("No thumbnail set!", show_alert=True)
     elif data == "user_thumb_set":
-        user_sessions[user_id] = "awaiting_user_thumb"
         await callback_query.message.edit_text(
             "📤 **Set Default Thumbnail**\n\n"
-            "Please send the **photo** you want to set as your default cover art/thumbnail.\n"
+            "Click below to upload a new personal thumbnail. "
             "This will be embedded into your processed videos.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📤 Upload New", callback_data="prompt_user_thumb_set")],
+                [InlineKeyboardButton("🔙 Back", callback_data="user_thumb_menu")]
+            ])
+        )
+    elif data == "prompt_user_thumb_set":
+        user_sessions[user_id] = "awaiting_user_thumb"
+        await callback_query.message.edit_text(
+            "🖼 **Send the new photo** to set as your personal thumbnail:",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="user_thumb_menu")]])
         )
     elif data == "user_thumb_remove":
@@ -140,18 +159,25 @@ async def user_settings_callback(client, callback_query):
     elif data == "user_caption":
         templates = await db.get_all_templates(user_id)
         current_caption = templates.get("caption", "{random}")
-        user_sessions[user_id] = "awaiting_user_template_caption"
         await callback_query.message.edit_text(
-            "📝 **Edit Caption Template**\n\n"
-            "Send the new caption text for your uploaded files.\n\n"
+            f"📝 **Edit Caption Template**\n\n"
             f"Current: `{current_caption}`\n\n"
             "**Variables:**\n"
             "- `{filename}` : The final filename\n"
             "- `{size}` : File size (e.g. 1.5 GB)\n"
             "- `{duration}` : Video duration\n"
-            "- `{random}` : Generates a random alphanumeric string (Anti-Hash)\n\n"
-            "Send `{random}` to use the default random text generator.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="user_main")]])
+            "- `{random}` : Random string (Anti-Hash)\n\n"
+            "Click below to change it.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✏️ Change", callback_data="prompt_user_caption")],
+                [InlineKeyboardButton("🔙 Back", callback_data="user_main")]
+            ])
+        )
+    elif data == "prompt_user_caption":
+        user_sessions[user_id] = "awaiting_user_template_caption"
+        await callback_query.message.edit_text(
+            "📝 **Send the new caption text:**\n\n(Use `{random}` to use the default random text generator)",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="user_main")]])
         )
     elif data == "user_view":
         settings = await db.get_settings(user_id)
@@ -219,25 +245,41 @@ async def user_settings_callback(client, callback_query):
         )
     elif data.startswith("edit_user_fn_template_"):
         field = data.replace("edit_user_fn_template_", "")
-        user_sessions[user_id] = f"awaiting_user_fn_template_{field}"
         templates = await db.get_filename_templates(user_id)
         current_val = templates.get(field, "")
         await callback_query.message.edit_text(
             f"✏️ **Edit Filename Template ({field.capitalize()})**\n\n"
-            f"Send the new template text.\n"
             f"Current: `{current_val}`\n\n"
             f"Variables: `{{Title}}`, `{{Year}}`, `{{Quality}}`, `{{Season}}`, `{{Episode}}`, `{{Season_Episode}}`, `{{Language}}`, `{{Channel}}`\n"
-            f"Note: File extension will be added automatically, do not include it in the template.",
+            f"Note: File extension will be added automatically.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✏️ Change", callback_data=f"prompt_user_fn_template_{field}")],
+                [InlineKeyboardButton("🔙 Back", callback_data="user_filename_templates")]
+            ])
+        )
+    elif data.startswith("prompt_user_fn_template_"):
+        field = data.replace("prompt_user_fn_template_", "")
+        user_sessions[user_id] = f"awaiting_user_fn_template_{field}"
+        await callback_query.message.edit_text(
+            f"✏️ **Send the new filename template for {field.capitalize()}:**",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="user_filename_templates")]])
         )
     elif data == "user_general_settings":
         current_channel = await db.get_channel(user_id)
+        await callback_query.message.edit_text(
+            f"⚙️ **General Settings**\n\n"
+            f"Current Channel Variable: `{current_channel}`\n\n"
+            "Click below to change it.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✏️ Change", callback_data="prompt_user_channel")],
+                [InlineKeyboardButton("🔙 Back", callback_data="user_main")]
+            ])
+        )
+    elif data == "prompt_user_channel":
         user_sessions[user_id] = "awaiting_user_channel"
         await callback_query.message.edit_text(
-            "⚙️ **General Settings**\n\n"
-            f"Send the new Channel name variable to use in templates (e.g. `@MyChannel`).\n"
-            f"Current: `{current_channel}`\n\n",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="user_main")]])
+            "⚙️ **Send the new Channel name variable to use in templates (e.g. `@MyChannel`):**",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="user_main")]])
         )
     elif data == "user_main" or data == "user_cancel":
         user_sessions.pop(user_id, None)
@@ -256,26 +298,37 @@ async def user_settings_callback(client, callback_query):
         )
     elif data.startswith("edit_user_template_"):
         field = data.split("_")[-1]
-        user_sessions[user_id] = f"awaiting_user_template_{field}"
         templates = await db.get_all_templates(user_id)
         current_val = templates.get(field, "")
         await callback_query.message.edit_text(
             f"✏️ **Edit {field.capitalize()} Template**\n\n"
-            f"Send the new template text.\n"
             f"Current: `{current_val}`\n\n"
-            f"Variables: `{{title}}`, `{{season_episode}}`, `{{lang}}` (for audio/subtitle)",
+            f"Variables: `{{title}}`, `{{season_episode}}`, `{{lang}}` (for audio/subtitle)\n\n"
+            "Click below to change it.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✏️ Change", callback_data=f"prompt_user_template_{field}")],
+                [InlineKeyboardButton("🔙 Back", callback_data="user_templates")]
+            ])
+        )
+    elif data.startswith("prompt_user_template_"):
+        field = data.replace("prompt_user_template_", "")
+        user_sessions[user_id] = f"awaiting_user_template_{field}"
+        await callback_query.message.edit_text(
+            f"✏️ **Send the new template text for {field.capitalize()}:**",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="user_templates")]])
         )
 
-@Client.on_message(filters.photo & filters.private)
+from pyrogram import ContinuePropagation
+
+@Client.on_message(filters.photo & filters.private, group=1)
 async def handle_user_photo(client, message):
     if not is_public_mode():
-        return
+        raise ContinuePropagation
 
     user_id = message.from_user.id
     if user_sessions.get(user_id) != "awaiting_user_thumb":
         # Pass to admin photo handler if applicable or to upload process
-        return
+        raise ContinuePropagation
 
     msg = await message.reply_text("Processing thumbnail...")
     try:
@@ -291,15 +344,15 @@ async def handle_user_photo(client, message):
         logger.error(f"Thumbnail upload failed: {e}")
         await msg.edit_text(f"❌ Error: {e}")
 
-@Client.on_message(filters.text & filters.private & ~filters.regex(r"^/"))
+@Client.on_message(filters.text & filters.private & ~filters.regex(r"^/"), group=1)
 async def handle_user_text(client, message):
     if not is_public_mode():
-        return
+        raise ContinuePropagation
 
     user_id = message.from_user.id
     state = user_sessions.get(user_id)
     if not state:
-        return
+        raise ContinuePropagation
 
     if state.startswith("awaiting_user_template_"):
         field = state.split("_")[-1]

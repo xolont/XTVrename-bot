@@ -39,10 +39,15 @@ async def handle_start_command_unique(client, message):
                 invite_link = force_sub_channel
 
             await message.reply_text(
-                f"Welcome to **{community_name}**!\n\n"
-                "You must join our community channel to use this bot.",
+                f"👋 **Welcome to {community_name}!**\n\n"
+                f"To use the **{config.get('bot_name', 'XTV Rename Bot')}** and all its features, you need to become a member of our community channel first.\n\n"
+                "**How to get started:**\n"
+                "1️⃣ Click the button below to join the channel.\n"
+                "2️⃣ Come back to this bot.\n"
+                "3️⃣ Send or forward any file to start renaming!\n\n"
+                "🔒 *This is required to prevent spam and keep the bot free for everyone.*",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Join Channel", url=invite_link)]
+                    [InlineKeyboardButton("📢 Join Our Community Channel", url=invite_link)]
                 ])
             )
             return

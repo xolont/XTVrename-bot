@@ -46,7 +46,7 @@ async def admin_panel(client, message):
             ])
         )
 
-@Client.on_callback_query(filters.regex(r"^(admin_|edit_template_|edit_fn_template_)"))
+@Client.on_callback_query(filters.regex(r"^(admin_|edit_template_|edit_fn_template_|prompt_)"))
 async def admin_callback(client, callback_query):
     user_id = callback_query.from_user.id
     if not is_admin(user_id):
@@ -72,44 +72,88 @@ async def admin_callback(client, callback_query):
             return
 
         elif data == "admin_public_bot_name":
-            admin_sessions[user_id] = "awaiting_public_bot_name"
+            config = await db.get_public_config()
+            current_val = config.get("bot_name", "Not set")
             await callback_query.message.edit_text(
-                "🤖 **Edit Bot Name**\n\nEnter the new bot name (e.g., 'AlphaBotz Rename Bot'):",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_main")]])
+                f"🤖 **Edit Bot Name**\n\nCurrent: `{current_val}`\n\nClick below to change it.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✏️ Change", callback_data="prompt_public_bot_name")],
+                    [InlineKeyboardButton("🔙 Back", callback_data="admin_main")]
+                ])
             )
             return
 
         elif data == "admin_public_community_name":
-            admin_sessions[user_id] = "awaiting_public_community_name"
+            config = await db.get_public_config()
+            current_val = config.get("community_name", "Not set")
             await callback_query.message.edit_text(
-                "👥 **Edit Community Name**\n\nEnter the new community name (e.g., 'AlphaBotz Community'):",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_main")]])
+                f"👥 **Edit Community Name**\n\nCurrent: `{current_val}`\n\nClick below to change it.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✏️ Change", callback_data="prompt_public_community_name")],
+                    [InlineKeyboardButton("🔙 Back", callback_data="admin_main")]
+                ])
             )
             return
 
         elif data == "admin_public_support_contact":
-            admin_sessions[user_id] = "awaiting_public_support_contact"
+            config = await db.get_public_config()
+            current_val = config.get("support_contact", "Not set")
             await callback_query.message.edit_text(
-                "🔗 **Edit Support Contact**\n\nEnter the support contact (e.g., '@davdxpx' or a link):",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_main")]])
+                f"🔗 **Edit Support Contact**\n\nCurrent: `{current_val}`\n\nClick below to change it.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✏️ Change", callback_data="prompt_public_support_contact")],
+                    [InlineKeyboardButton("🔙 Back", callback_data="admin_main")]
+                ])
             )
             return
 
         elif data == "admin_public_force_sub":
-            admin_sessions[user_id] = "awaiting_public_force_sub"
+            config = await db.get_public_config()
+            current_val = config.get("force_sub_channel", "Not set")
             await callback_query.message.edit_text(
-                "📢 **Edit Force-Sub Channel**\n\nEnter the channel username (e.g., '@MyChannel') or ID.\nSend `disable` to disable Force-Sub.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_main")]])
+                f"📢 **Edit Force-Sub Channel**\n\nCurrent: `{current_val}`\n\nClick below to change it.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✏️ Change", callback_data="prompt_public_force_sub")],
+                    [InlineKeyboardButton("🔙 Back", callback_data="admin_main")]
+                ])
             )
             return
 
         elif data == "admin_public_rate_limit":
-            admin_sessions[user_id] = "awaiting_public_rate_limit"
+            config = await db.get_public_config()
+            current_val = config.get("rate_limit_delay", 0)
             await callback_query.message.edit_text(
-                "⏱ **Edit Rate Limit**\n\nEnter the delay in seconds between requests for users (e.g., `60`).\nSend `0` to disable.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_main")]])
+                f"⏱ **Edit Rate Limit**\n\nCurrent: `{current_val}` seconds\n\nClick below to change it.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✏️ Change", callback_data="prompt_public_rate_limit")],
+                    [InlineKeyboardButton("🔙 Back", callback_data="admin_main")]
+                ])
             )
             return
+
+    # Handle "Change" prompts for Public Config
+    if Config.PUBLIC_MODE and data.startswith("prompt_public_"):
+        field = data.replace("prompt_public_", "")
+        admin_sessions[user_id] = f"awaiting_public_{field}"
+
+        if field == "bot_name":
+            text = "🤖 **Send the new bot name:**"
+        elif field == "community_name":
+            text = "👥 **Send the new community name:**"
+        elif field == "support_contact":
+            text = "🔗 **Send the new support contact (e.g., @username or link):**"
+        elif field == "force_sub":
+            text = "📢 **Send the channel username (e.g., @MyChannel) or ID.**\nSend `disable` to disable."
+        elif field == "rate_limit":
+            text = "⏱ **Send the delay in seconds (e.g., 60).**\nSend `0` to disable."
+        else:
+            text = "Send the new value:"
+
+        await callback_query.message.edit_text(
+            text,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_main")]])
+        )
+        return
     if data == "admin_thumb_menu":
         await callback_query.message.edit_text(
             "🖼 **Manage Thumbnail**\n\n"
@@ -142,11 +186,19 @@ async def admin_callback(client, callback_query):
         else:
             await callback_query.answer("No thumbnail set in DB!", show_alert=True)
     elif data == "admin_thumb_set":
-        admin_sessions[user_id] = "awaiting_thumb"
         await callback_query.message.edit_text(
             "📤 **Set Default Thumbnail**\n\n"
-            "Please send the **photo** you want to set as the default cover art/thumbnail for all files.\n"
+            "Click below to upload a new thumbnail. "
             "This will be embedded into every video processed.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📤 Upload New", callback_data="prompt_admin_thumb_set")],
+                [InlineKeyboardButton("🔙 Back", callback_data="admin_thumb_menu")]
+            ])
+        )
+    elif data == "prompt_admin_thumb_set":
+        admin_sessions[user_id] = "awaiting_thumb"
+        await callback_query.message.edit_text(
+            "🖼 **Send the new photo** to set as the default thumbnail:",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_thumb_menu")]])
         )
     elif data == "admin_templates":
@@ -166,18 +218,25 @@ async def admin_callback(client, callback_query):
     elif data == "admin_caption":
         templates = await db.get_all_templates()
         current_caption = templates.get("caption", "{random}")
-        admin_sessions[user_id] = "awaiting_template_caption"
         await callback_query.message.edit_text(
-            "📝 **Edit Caption Template**\n\n"
-            "Send the new caption text for uploaded files.\n\n"
+            f"📝 **Edit Caption Template**\n\n"
             f"Current: `{current_caption}`\n\n"
             "**Variables:**\n"
             "- `{filename}` : The final filename\n"
             "- `{size}` : File size (e.g. 1.5 GB)\n"
             "- `{duration}` : Video duration\n"
-            "- `{random}` : Generates a random alphanumeric string (Anti-Hash)\n\n"
-            "Send `{random}` to use the default random text generator.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_main")]])
+            "- `{random}` : Random string (Anti-Hash)\n\n"
+            "Click below to change it.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✏️ Change", callback_data="prompt_admin_caption")],
+                [InlineKeyboardButton("🔙 Back", callback_data="admin_main")]
+            ])
+        )
+    elif data == "prompt_admin_caption":
+        admin_sessions[user_id] = "awaiting_template_caption"
+        await callback_query.message.edit_text(
+            "📝 **Send the new caption text:**\n\n(Use `{random}` to use the default random text generator)",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_main")]])
         )
     elif data == "admin_view":
         settings = await db.get_settings()
@@ -240,25 +299,41 @@ async def admin_callback(client, callback_query):
         )
     elif data.startswith("edit_fn_template_"):
         field = data.replace("edit_fn_template_", "")
-        admin_sessions[user_id] = f"awaiting_fn_template_{field}"
         templates = await db.get_filename_templates()
         current_val = templates.get(field, "")
         await callback_query.message.edit_text(
             f"✏️ **Edit Filename Template ({field.capitalize()})**\n\n"
-            f"Send the new template text.\n"
             f"Current: `{current_val}`\n\n"
             f"Variables: `{{Title}}`, `{{Year}}`, `{{Quality}}`, `{{Season}}`, `{{Episode}}`, `{{Season_Episode}}`, `{{Language}}`, `{{Channel}}`\n"
-            f"Note: File extension will be added automatically, do not include it in the template.",
+            f"Note: File extension will be added automatically.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✏️ Change", callback_data=f"prompt_fn_template_{field}")],
+                [InlineKeyboardButton("🔙 Back", callback_data="admin_filename_templates")]
+            ])
+        )
+    elif data.startswith("prompt_fn_template_"):
+        field = data.replace("prompt_fn_template_", "")
+        admin_sessions[user_id] = f"awaiting_fn_template_{field}"
+        await callback_query.message.edit_text(
+            f"✏️ **Send the new filename template for {field.capitalize()}:**",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_filename_templates")]])
         )
     elif data == "admin_settings":
         current_channel = await db.get_channel()
+        await callback_query.message.edit_text(
+            f"⚙️ **General Settings**\n\n"
+            f"Current Channel Variable: `{current_channel}`\n\n"
+            "Click below to change it.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✏️ Change", callback_data="prompt_admin_channel")],
+                [InlineKeyboardButton("🔙 Back", callback_data="admin_main")]
+            ])
+        )
+    elif data == "prompt_admin_channel":
         admin_sessions[user_id] = "awaiting_channel"
         await callback_query.message.edit_text(
-            "⚙️ **Settings**\n\n"
-            f"Send the new Channel name (e.g. `@XTVglobal`).\n"
-            f"Current: `{current_channel}`\n\n",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_main")]])
+            "⚙️ **Send the new Channel name (e.g. `@XTVglobal`):**",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_main")]])
         )
     elif data == "admin_main" or data == "admin_cancel":
         admin_sessions.pop(user_id, None)
@@ -295,21 +370,33 @@ async def admin_callback(client, callback_query):
             )
     elif data.startswith("edit_template_"):
         field = data.split("_")[-1]
-        admin_sessions[user_id] = f"awaiting_template_{field}"
         templates = await db.get_all_templates()
         current_val = templates.get(field, "")
         await callback_query.message.edit_text(
             f"✏️ **Edit {field.capitalize()} Template**\n\n"
-            f"Send the new template text.\n"
             f"Current: `{current_val}`\n\n"
-            f"Variables: `{{title}}`, `{{season_episode}}`, `{{lang}}` (for audio/subtitle)",
+            f"Variables: `{{title}}`, `{{season_episode}}`, `{{lang}}` (for audio/subtitle)\n\n"
+            "Click below to change it.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✏️ Change", callback_data=f"prompt_template_{field}")],
+                [InlineKeyboardButton("🔙 Back", callback_data="admin_templates")]
+            ])
+        )
+    elif data.startswith("prompt_template_"):
+        field = data.replace("prompt_template_", "")
+        admin_sessions[user_id] = f"awaiting_template_{field}"
+        await callback_query.message.edit_text(
+            f"✏️ **Send the new template text for {field.capitalize()}:**",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="admin_templates")]])
         )
-@Client.on_message(filters.photo & filters.private)
+from pyrogram import ContinuePropagation
+
+@Client.on_message(filters.photo & filters.private, group=1)
 async def handle_admin_photo(client, message):
     user_id = message.from_user.id
     if not is_admin(user_id) or admin_sessions.get(user_id) != "awaiting_thumb":
-        return
+        raise ContinuePropagation
+
     msg = await message.reply_text("Processing thumbnail...")
     try:
         file_id = message.photo.file_id
@@ -323,14 +410,15 @@ async def handle_admin_photo(client, message):
     except Exception as e:
         logger.error(f"Thumbnail upload failed: {e}")
         await msg.edit_text(f"❌ Error: {e}")
-@Client.on_message(filters.text & filters.private & ~filters.regex(r"^/"))
+@Client.on_message(filters.text & filters.private & ~filters.regex(r"^/"), group=1)
 async def handle_admin_text(client, message):
     user_id = message.from_user.id
     if not is_admin(user_id):
-        return
+        raise ContinuePropagation
+
     state = admin_sessions.get(user_id)
     if not state:
-        return
+        raise ContinuePropagation
 
     # Handle Public Mode settings
     if state.startswith("awaiting_public_"):

@@ -555,9 +555,14 @@ async def handle_file_upload(client, message):
                 invite_link = force_sub_channel
 
             await message.reply_text(
-                "You must join our community channel to use this bot.",
+                f"⚠️ **Access Restricted**\n\n"
+                f"You must join our community channel to use the **{config.get('bot_name', 'XTV Rename Bot')}**.\n\n"
+                "**How to continue:**\n"
+                "1️⃣ Click the button below to join the channel.\n"
+                "2️⃣ Come back here.\n"
+                "3️⃣ Send or forward your file again!\n",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Join Channel", url=invite_link)]
+                    [InlineKeyboardButton("📢 Join Our Community Channel", url=invite_link)]
                 ])
             )
             return
