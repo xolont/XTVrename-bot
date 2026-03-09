@@ -491,10 +491,10 @@ class TaskProcessor:
 
                     # Now send to dumb channel
                     try:
-                        await media_msg.forward(chat_id=dumb_channel)
+                        await media_msg.copy(chat_id=dumb_channel)
                         queue_manager.update_status(batch_id, item_id, "done_dumb")
                     except Exception as e:
-                        logger.error(f"Failed to forward {final_filename} to dumb channel {dumb_channel}: {e}")
+                        logger.error(f"Failed to copy {final_filename} to dumb channel {dumb_channel}: {e}")
                         queue_manager.update_status(batch_id, item_id, "failed", str(e))
 
         except Exception as e:
