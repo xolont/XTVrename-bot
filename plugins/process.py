@@ -491,7 +491,13 @@ class TaskProcessor:
 
                     # Now send to dumb channel
                     try:
-                        await media_msg.copy(chat_id=dumb_channel)
+                        # Use the main bot client to copy, ensuring it resolves the dumb channel peer correctly.
+                        # Using self.client guarantees the bot performs the transmission, not the userbot.
+                        await self.client.copy_message(
+                            chat_id=dumb_channel,
+                            from_chat_id=media_msg.chat.id,
+                            message_id=media_msg.id
+                        )
                         queue_manager.update_status(batch_id, item_id, "done_dumb")
                     except Exception as e:
                         logger.error(f"Failed to copy {final_filename} to dumb channel {dumb_channel}: {e}")
