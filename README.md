@@ -88,18 +88,21 @@ This repository is also optimized for **Railway** with a custom `Dockerfile`, th
 4.  **Add Variables**: Go to the "Variables" tab and add the configuration (see below).
 5.  **Build & Deploy**: Railway will automatically detect the Dockerfile and start the bot.
 
-### 3. Local / VPS (Docker)
+### 3. Oracle Cloud / VPS (Docker Compose)
+
+For those looking for high performance and **10TB of free egress** bandwidth, deploying on **Oracle Cloud's Always Free ARM A1 Instances** (or any standard VPS) is highly recommended.
 
 ```bash
 # 1. Clone the repo
 git clone https://github.com/davdxpx/XTVrename-bot.git
 cd XTVrename-bot
 
-# 2. Build the image
-docker build -t xtv-bot .
+# 2. Configure Environment
+cp .env.example .env
+nano .env # Add your tokens here
 
-# 3. Run the container
-docker run -d --env-file .env --name xtv-bot xtv-bot
+# 3. Build & Run the container in the background
+docker-compose up -d --build
 ```
 
 ## ⚙️ Configuration (.env)
