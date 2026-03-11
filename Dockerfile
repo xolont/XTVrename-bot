@@ -7,9 +7,12 @@ WORKDIR /app
 # Install system dependencies
 # ffmpeg is crucial for the bot's media processing
 # git is often needed for some python packages
+# gcc and python3-dev are required to build TgCrypto on ARM architectures
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     git \
+    gcc \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the requirements file into the container at /app
