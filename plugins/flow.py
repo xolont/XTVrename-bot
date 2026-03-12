@@ -915,6 +915,7 @@ async def handle_file_upload(client, message):
 
     episode = 1
     season = 1
+    session_data = get_data(user_id)
     if session_data.get("type") == "series":
         season = session_data.get("season", 1)
         if session_data.get("is_subtitle"):
@@ -1274,7 +1275,7 @@ async def handle_audio_edit_callbacks(client, callback_query):
     action = callback_query.data.split("_")[2]
 
     if action == "process":
-        await callback_query.message.edit_text("Processing audio file...", quote=True)
+        await callback_query.message.edit_text("Processing audio file...")
         session_data = get_data(user_id)
 
         data = {
@@ -1366,7 +1367,7 @@ async def handle_convert_to(client, callback_query):
     user_id = callback_query.from_user.id
     target_format = callback_query.data.split("_")[2]
 
-    await callback_query.message.edit_text("Processing conversion...", quote=True)
+    await callback_query.message.edit_text("Processing conversion...")
     session_data = get_data(user_id)
 
     data = {
