@@ -3,7 +3,9 @@
 > **Business-Class Media Management Solution**
 > *Developed by [𝕏0L0™](https://t.me/davdxpx) for the [𝕏TV Network](https://t.me/XTVglobal)*
 
-![XTV Banner](https://telegra.ph/file/857e23117462419409849.jpg)
+<p align="center">
+  <img src="./assets/banner.png" alt="𝕏TV Rename Bot Banner" width="100%">
+</p>
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
 [![Pyrogram](https://img.shields.io/badge/Pyrogram-Latest-blue.svg?logo=telegram&logoColor=white)](https://docs.pyrogram.org/)
