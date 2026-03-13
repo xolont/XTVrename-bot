@@ -9,6 +9,7 @@ from config import Config
 from utils.log import get_logger
 import asyncio
 import re
+import os
 
 logger = get_logger("plugins.flow")
 logger.info("Loading plugins.flow...")
@@ -287,13 +288,14 @@ async def handle_text_input(client, message):
     elif state and state.startswith("awaiting_audio_"):
         action = state.replace("awaiting_audio_", "")
 
+        val = message.text.strip() if getattr(message, "text", None) else ""
         if action == "thumb":
-            if not getattr(message, "photo", None):
-                await message.reply_text("Please send a photo for the cover art.")
+            if val == "-":
+                update_data(user_id, "audio_thumb_id", None)
+            else:
+                await message.reply_text("Please send a photo for the cover art, or send '-' to clear it.")
                 return
-            update_data(user_id, "audio_thumb_id", message.photo.file_id)
         else:
-            val = message.text.strip() if getattr(message, "text", None) else ""
             if val == "-": val = ""
             update_data(user_id, f"audio_{action}", val)
 
@@ -321,9 +323,9 @@ async def handle_text_input(client, message):
         try:
             msg = await client.get_messages(session_data.get("file_chat_id"), session_data.get("file_message_id"))
             data["file_message"] = msg
-            await message.reply_text("Processing watermark...", quote=True)
+            reply_msg = await message.reply_text("Processing watermark...", quote=True)
             from plugins.process import process_file
-            asyncio.create_task(process_file(client, message, data))
+            asyncio.create_task(process_file(client, reply_msg, data))
         except Exception as e:
             logger.error(f"Failed to get message for watermark mode: {e}")
             await message.reply_text(f"Error: {e}")
@@ -516,12 +518,13 @@ async def handle_dumb_selection(client, callback_query):
         try:
             msg = await client.get_messages(session_data.get("file_chat_id"), session_data.get("file_message_id"))
             data["file_message"] = msg
-            await callback_query.message.edit_text("Processing file...")
+            await callback_query.message.delete()
+            reply_msg = await client.send_message(user_id, "Processing file...")
             from plugins.process import process_file
-            asyncio.create_task(process_file(client, callback_query.message, data))
+            asyncio.create_task(process_file(client, reply_msg, data))
         except Exception as e:
             logger.error(f"Failed to get message for general mode: {e}")
-            await callback_query.message.edit_text(f"Error: {e}")
+            await client.send_message(user_id, f"Error: {e}")
 
         clear_session(user_id)
         return
@@ -743,6 +746,16 @@ async def handle_file_upload(client, message):
         )
         return
 
+    if state == "awaiting_audio_thumb":
+        if not getattr(message, "photo", None):
+            await message.reply_text("Please send a photo for the cover art.")
+            return
+
+        update_data(user_id, "audio_thumb_id", message.photo.file_id)
+        set_state(user_id, "awaiting_audio_menu")
+        await render_audio_menu(client, message, user_id)
+        return
+
     if state == "awaiting_watermark_image":
         if not getattr(message, "photo", None) and not getattr(message, "document", None):
             await message.reply_text("Please send an image.")
@@ -792,9 +805,9 @@ async def handle_file_upload(client, message):
         try:
             msg = await client.get_messages(session_data.get("file_chat_id"), session_data.get("file_message_id"))
             data["file_message"] = msg
-            await message.reply_text("Processing watermark...", quote=True)
+            reply_msg = await message.reply_text("Processing watermark...", quote=True)
             from plugins.process import process_file
-            asyncio.create_task(process_file(client, message, data))
+            asyncio.create_task(process_file(client, reply_msg, data))
         except Exception as e:
             logger.error(f"Failed to get message for watermark mode: {e}")
             await message.reply_text(f"Error: {e}")
@@ -1275,7 +1288,7 @@ async def handle_audio_edit_callbacks(client, callback_query):
     action = callback_query.data.split("_")[2]
 
     if action == "process":
-        await callback_query.message.edit_text("Processing audio file...")
+        await callback_query.message.delete()
         session_data = get_data(user_id)
 
         data = {
@@ -1292,11 +1305,12 @@ async def handle_audio_edit_callbacks(client, callback_query):
         try:
             msg = await client.get_messages(session_data.get("file_chat_id"), session_data.get("file_message_id"))
             data["file_message"] = msg
+            reply_msg = await client.send_message(user_id, "Processing audio file...")
             from plugins.process import process_file
-            asyncio.create_task(process_file(client, callback_query.message, data))
+            asyncio.create_task(process_file(client, reply_msg, data))
         except Exception as e:
             logger.error(f"Failed to get message for audio mode: {e}")
-            await callback_query.message.reply_text(f"Error: {e}")
+            await client.send_message(user_id, f"Error: {e}")
         clear_session(user_id)
         return
 
@@ -1367,7 +1381,7 @@ async def handle_convert_to(client, callback_query):
     user_id = callback_query.from_user.id
     target_format = callback_query.data.split("_")[2]
 
-    await callback_query.message.edit_text("Processing conversion...")
+    await callback_query.message.delete()
     session_data = get_data(user_id)
 
     data = {
@@ -1382,11 +1396,12 @@ async def handle_convert_to(client, callback_query):
     try:
         msg = await client.get_messages(session_data.get("file_chat_id"), session_data.get("file_message_id"))
         data["file_message"] = msg
+        reply_msg = await client.send_message(user_id, "Processing conversion...")
         from plugins.process import process_file
-        asyncio.create_task(process_file(client, callback_query.message, data))
+        asyncio.create_task(process_file(client, reply_msg, data))
     except Exception as e:
         logger.error(f"Failed to get message for convert mode: {e}")
-        await callback_query.message.reply_text(f"Error: {e}")
+        await client.send_message(user_id, f"Error: {e}")
 
     clear_session(user_id)
 
