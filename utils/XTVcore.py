@@ -4,10 +4,10 @@ import time
 
 class XTVEngine:
     NAME_CORE = "𝕏TV Core"
-    VERSION_CORE = "2.1"
+    VERSION_CORE = "3.1"
 
     NAME_PRO = "𝕏TV Pro"
-    VERSION_PRO = "1.1"
+    VERSION_PRO = "1.7"
 
     BUILD = "2405.1"
     DEVELOPER = "@davdxpx"
