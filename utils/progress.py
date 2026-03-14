@@ -6,13 +6,6 @@ from utils.XTVcore import XTVEngine
 async def progress_for_pyrogram(
     current, total, ud_type, message, start_time, mode="core"
 ):
-    """
-    Enhanced progress callback for Pyrogram with 'Business Software Level' formatting.
-    Features:
-    - Visual progress bar [■■■■■□□□□□]
-    - Detailed metrics (Size, Speed, ETA, Percentage)
-    - Clean layout and XTV Engine branding.
-    """
     now = time.time()
     diff = now - start_time
 
