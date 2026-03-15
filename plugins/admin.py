@@ -414,7 +414,7 @@ async def admin_callback(client, callback_query):
                         [
                             [
                                 InlineKeyboardButton(
-                                    "← Back", callback_data="admin_templates_menu"
+                                    "← Back", callback_data="admin_public_settings"
                                 )
                             ]
                         ]
@@ -439,7 +439,7 @@ async def admin_callback(client, callback_query):
                             ],
                             [
                                 InlineKeyboardButton(
-                                    "← Back", callback_data="admin_templates_menu"
+                                    "← Back", callback_data="admin_public_settings"
                                 )
                             ],
                         ]
@@ -465,7 +465,7 @@ async def admin_callback(client, callback_query):
                             ],
                             [
                                 InlineKeyboardButton(
-                                    "← Back", callback_data="admin_templates_menu"
+                                    "← Back", callback_data="admin_public_settings"
                                 )
                             ],
                         ]
@@ -491,7 +491,7 @@ async def admin_callback(client, callback_query):
                             ],
                             [
                                 InlineKeyboardButton(
-                                    "← Back", callback_data="admin_templates_menu"
+                                    "← Back", callback_data="admin_public_settings"
                                 )
                             ],
                         ]
