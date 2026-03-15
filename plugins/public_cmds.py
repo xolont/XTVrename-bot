@@ -19,7 +19,7 @@ def get_user_main_menu():
                     "🖼 Manage Thumbnail", callback_data="user_thumb_menu"
                 ),
                 InlineKeyboardButton(
-                    "📋 Templates", callback_data="user_templates_menu"
+                    "📋 Templates", callback_data="user_main"
                 ),
             ],
             [
