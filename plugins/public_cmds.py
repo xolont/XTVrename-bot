@@ -970,17 +970,6 @@ async def handle_user_text(client, message):
         )
         user_sessions.pop(user_id, None)
 
-
-# --------------------------------------------------------------------------
-# Developed by 𝕏0L0™ (@davdxpx) | © 2026 XTV Network Global
-# Don't Remove Credit
-# Telegram Channel @XTVbots
-# Developed for the 𝕏TV Network @XTVglobal
-# Backup Channel @XTVhome
-# Contact on Telegram @davdxpx
-# --------------------------------------------------------------------------
-
-
 async def _send_usage(client, target, user_id, is_callback=False):
     if user_id == Config.CEO_ID or user_id in Config.ADMIN_IDS:
         text = "👑 **Admin Account**\n\nYou have unlimited processing capabilities."
@@ -1104,3 +1093,13 @@ async def refresh_usage_cb(client, callback_query):
     if not is_public_mode():
         return
     await _send_usage(client, callback_query.message, callback_query.from_user.id, True)
+
+
+# --------------------------------------------------------------------------
+# Developed by 𝕏0L0™ (@davdxpx) | © 2026 XTV Network Global
+# Don't Remove Credit
+# Telegram Channel @XTVbots
+# Developed for the 𝕏TV Network @XTVglobal
+# Backup Channel @XTVhome
+# Contact on Telegram @davdxpx
+# --------------------------------------------------------------------------
