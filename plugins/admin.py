@@ -15,67 +15,71 @@ admin_sessions = {}
 def get_admin_main_menu(pro_session, public_mode):
     pro_btn_text = "🚀 Manage 𝕏TV Pro™" if pro_session else "🚀 Setup 𝕏TV Pro™"
 
-    keyboard = [
-        [
-            InlineKeyboardButton("⚙️ Bot Settings", callback_data="admin_bot_settings"),
-            InlineKeyboardButton("📋 Templates", callback_data="admin_templates_menu"),
-        ]
-    ]
+    keyboard = []
 
     if public_mode:
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    "🔒 Access & Limits", callback_data="admin_access_limits"
+                    "🌐 Public Mode Settings", callback_data="admin_public_settings"
                 ),
                 InlineKeyboardButton(
-                    "🌐 Public Mode Settings", callback_data="admin_public_settings"
+                    "🔒 Access & Limits", callback_data="admin_access_limits"
                 ),
             ]
         )
-
-    bottom_row = [
-        InlineKeyboardButton(
-            "📊 Usage Dashboard", callback_data="admin_usage_dashboard"
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    "📺 Dumb Channels", callback_data="admin_dumb_channels"
+                ),
+                InlineKeyboardButton(
+                    "⏱ Edit Dumb Channel Timeout", callback_data="admin_dumb_timeout"
+                ),
+            ]
         )
-    ]
-
-    if public_mode:
-        bottom_row.append(
-            InlineKeyboardButton(
-                "📢 Broadcast Message", callback_data="admin_broadcast"
-            )
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    "📊 Usage Dashboard", callback_data="admin_usage_dashboard"
+                ),
+                InlineKeyboardButton(
+                    "📢 Broadcast Message", callback_data="admin_broadcast"
+                ),
+            ]
         )
     else:
-        bottom_row.append(
-            InlineKeyboardButton("👀 View Settings", callback_data="admin_view")
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    "🖼 Manage Thumbnail", callback_data="admin_thumb_menu"
+                ),
+                InlineKeyboardButton(
+                    "📋 Templates", callback_data="admin_templates_menu"
+                ),
+            ]
         )
-
-    keyboard.append(bottom_row)
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    "📺 Dumb Channels", callback_data="admin_dumb_channels"
+                ),
+                InlineKeyboardButton("⚙️ Settings", callback_data="admin_settings"),
+            ]
+        )
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    "📊 Usage Dashboard", callback_data="admin_usage_dashboard"
+                ),
+                InlineKeyboardButton("👀 View Settings", callback_data="admin_view"),
+            ]
+        )
 
     keyboard.append(
         [InlineKeyboardButton(pro_btn_text, callback_data="pro_setup_menu")]
     )
 
-    return InlineKeyboardMarkup(keyboard)
-
-
-def get_admin_bot_settings_menu(public_mode):
-    keyboard = [
-        [InlineKeyboardButton("🖼 Global Thumbnail", callback_data="admin_thumb_menu")],
-        [InlineKeyboardButton("📺 Dumb Channels", callback_data="admin_dumb_channels")],
-    ]
-    if public_mode:
-        keyboard.append(
-            [
-                InlineKeyboardButton(
-                    "⏱ Edit Dumb Channel Timeout", callback_data="admin_dumb_timeout"
-                )
-            ]
-        )
-    keyboard.append(
-        [InlineKeyboardButton("← Back to Admin Panel", callback_data="admin_main")]
-    )
     return InlineKeyboardMarkup(keyboard)
 
 

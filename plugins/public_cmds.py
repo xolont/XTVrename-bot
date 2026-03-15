@@ -11,6 +11,59 @@ logger = get_logger("plugins.public_cmds")
 user_sessions = {}
 
 
+def get_user_main_menu():
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "🖼 Manage Thumbnail", callback_data="user_thumb_menu"
+                ),
+                InlineKeyboardButton(
+                    "📋 Templates", callback_data="user_templates_menu"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    "📺 Dumb Channels", callback_data="dumb_user_menu"
+                ),
+                InlineKeyboardButton(
+                    "⚙️ General Settings", callback_data="user_general_settings"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    "👀 View Current Settings", callback_data="user_view"
+                )
+            ],
+            [InlineKeyboardButton("❌ Close", callback_data="user_cancel")],
+        ]
+    )
+
+
+def get_user_templates_menu():
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "📝 Edit Filename Templates",
+                    callback_data="user_filename_templates",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "📝 Edit Caption Template", callback_data="user_caption"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "📝 Edit Metadata Templates", callback_data="user_templates"
+                )
+            ],
+            [InlineKeyboardButton("← Back", callback_data="user_main")],
+        ]
+    )
+
+
 def is_public_mode():
     return Config.PUBLIC_MODE
 
@@ -73,52 +126,11 @@ async def settings_panel(client, message):
     if not is_public_mode():
         return
 
-    user_id = message.from_user.id
-
     await message.reply_text(
         "🛠 **Personal Settings Panel** 🛠\n\n"
         "Welcome to your personal settings.\n"
         "Here you can customize templates and thumbnails for your own files.",
-        reply_markup=InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton(
-                        "🖼 Manage Thumbnail", callback_data="user_thumb_menu"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "📝 Edit Metadata Templates", callback_data="user_templates"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "📝 Edit Filename Templates",
-                        callback_data="user_filename_templates",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "📝 Edit Caption Template", callback_data="user_caption"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "📺 Dumb Channels", callback_data="user_dumb_channels"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "⚙️ General Settings", callback_data="user_general_settings"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "👀 View Current Settings", callback_data="user_view"
-                    )
-                ],
-            ]
-        ),
+        reply_markup=get_user_main_menu(),
     )
 
 
