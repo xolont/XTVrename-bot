@@ -141,8 +141,7 @@ class TaskProcessor:
             self.filename_templates = Config.DEFAULT_FILENAME_TEMPLATES
             self.channel = Config.DEFAULT_CHANNEL
 
-        if Config.PUBLIC_MODE:
-            await db.update_rate_limit(self.user_id)
+
 
         return True
 

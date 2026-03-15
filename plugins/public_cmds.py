@@ -869,3 +869,87 @@ async def handle_user_text(client, message):
 # Backup Channel @XTVhome
 # Contact on Telegram @davdxpx
 # --------------------------------------------------------------------------
+
+@Client.on_message(filters.command("usage") & filters.private & filters.create(is_public_mode), group=0)
+async def usage_command(client, message):
+    user_id = message.from_user.id
+
+    # Bypass limits for CEO/Admins visually
+    if user_id == Config.CEO_ID or user_id in Config.ADMIN_IDS:
+        await message.reply_text("👑 **Admin Account**\n\nYou have unlimited processing capabilities.")
+        return
+
+    config = await db.get_public_config()
+    daily_egress_mb_limit = config.get("daily_egress_mb", 0)
+    daily_file_count_limit = config.get("daily_file_count", 0)
+
+    usage = await db.get_user_usage(user_id)
+
+    import datetime
+    current_utc = datetime.datetime.utcnow()
+    current_utc_date = current_utc.strftime("%Y-%m-%d")
+    current_date_display = current_utc.strftime("%d %b %Y")
+
+    # Calculate time to midnight
+    tomorrow = current_utc + datetime.timedelta(days=1)
+    midnight = datetime.datetime(tomorrow.year, tomorrow.month, tomorrow.day)
+    time_to_midnight = midnight - current_utc
+    hours, remainder = divmod(int(time_to_midnight.total_seconds()), 3600)
+    minutes, _ = divmod(remainder, 60)
+
+    # Grab today's usage (handling date reset visual)
+    files_today = 0
+    egress_today_mb = 0.0
+    if usage.get("date") == current_utc_date:
+        files_today = usage.get("file_count", 0)
+        egress_today_mb = usage.get("egress_mb", 0.0)
+
+    files_alltime = usage.get("file_count_alltime", 0)
+    egress_alltime_mb = usage.get("egress_mb_alltime", 0.0)
+
+    def format_egress(mb):
+        if mb >= 1048576:
+            return f"{mb / 1048576:.2f} TB"
+        elif mb >= 1024:
+            return f"{mb / 1024:.2f} GB"
+        else:
+            return f"{mb:.2f} MB"
+
+    # Format limits and percentages
+    files_limit_str = f"{daily_file_count_limit}" if daily_file_count_limit > 0 else "Unlimited"
+    egress_limit_str = format_egress(daily_egress_mb_limit) if daily_egress_mb_limit > 0 else "Unlimited"
+
+    # Determine the highest percentage used
+    percent_files = (files_today / daily_file_count_limit) * 100 if daily_file_count_limit > 0 else 0
+    percent_egress = (egress_today_mb / daily_egress_mb_limit) * 100 if daily_egress_mb_limit > 0 else 0
+
+    max_percent = max(percent_files, percent_egress)
+    if max_percent > 100:
+        max_percent = 100
+
+    # Generate progress bar using block characters
+    # 10 blocks total
+    filled_blocks = int(max_percent / 10)
+    empty_blocks = 10 - filled_blocks
+    progress_bar = ("█" * filled_blocks) + ("░" * empty_blocks)
+
+    text = (
+        f"📊 **Your Usage — {current_date_display}**\n\n"
+        f"**Today**\n"
+        f"📁 Files: `{files_today} / {files_limit_str}`\n"
+        f"📦 Egress: `{format_egress(egress_today_mb)} / {egress_limit_str}`\n"
+    )
+
+    if daily_file_count_limit > 0 or daily_egress_mb_limit > 0:
+        text += f"`{progress_bar}` {int(max_percent)}%\n\n"
+    else:
+        text += f"*(No limits currently applied)*\n\n"
+
+    text += (
+        f"**All-Time**\n"
+        f"📁 Files: `{files_alltime}`\n"
+        f"📦 Egress: `{format_egress(egress_alltime_mb)}`\n\n"
+        f"Resets at midnight UTC (in ~{hours}h {minutes}m)"
+    )
+
+    await message.reply_text(text)

@@ -29,6 +29,7 @@ class Database:
 
             self.db = self.client[Config.DB_NAME]
             self.settings = self.db[Config.SETTINGS_COLLECTION]
+            self.daily_stats = self.db["daily_stats"]
 
     def _get_doc_id(self, user_id=None):
         if Config.PUBLIC_MODE and user_id is not None:
@@ -295,7 +296,8 @@ class Database:
                     "support_contact": "@davdxpx",
                     "force_sub_channel": None,
                     "force_sub_link": None,
-                    "rate_limit_delay": 0,
+                    "daily_egress_mb": 0,
+                    "daily_file_count": 0,
                 }
                 await self.settings.insert_one(default_config)
                 return default_config
@@ -314,44 +316,292 @@ class Database:
         except Exception as e:
             logger.error(f"Error updating public config: {e}")
 
-    async def check_rate_limit(self, user_id: int) -> bool:
+    async def get_user_usage(self, user_id: int) -> dict:
         if self.settings is None:
-            return True
-        config = await self.get_public_config()
-        delay = config.get("rate_limit_delay", 0)
+            return {}
+        try:
+            doc = await self.settings.find_one({"_id": f"user_{user_id}"})
+            if not doc:
+                return {}
+            return doc.get("usage", {})
+        except Exception as e:
+            logger.error(f"Error fetching usage for user {user_id}: {e}")
+            return {}
 
-        if delay <= 0:
-            return True
+    async def check_daily_quota(self, user_id: int, file_size_bytes: int) -> tuple[bool, str, dict]:
+        # Always allow CEO and Admins
+        if user_id == Config.CEO_ID or user_id in Config.ADMIN_IDS:
+            return True, "", {}
+
+        if self.settings is None:
+            return True, "", {}
+
+        if not Config.PUBLIC_MODE:
+            return True, "", {}
+
+        config = await self.get_public_config()
+        daily_egress_mb_limit = config.get("daily_egress_mb", 0)
+        daily_file_count_limit = config.get("daily_file_count", 0)
+
+        # No limits configured
+        if daily_egress_mb_limit <= 0 and daily_file_count_limit <= 0:
+            return True, "", {}
+
+        import datetime
+        current_utc_date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
 
         try:
-            user_doc = await self.settings.find_one({"_id": f"user_{user_id}"})
-            if not user_doc:
-                return True
+            doc = await self.settings.find_one({"_id": f"user_{user_id}"})
 
-            last_used = user_doc.get("last_used", 0)
-            import time
+            # Use dictionary representation since MongoDB nested updates don't initialize the root automatically if using multiple paths
+            usage = doc.get("usage", {}) if doc else {}
 
-            if time.time() - last_used < delay:
-                return False
+            # Reset daily usage if it's a new day
+            if usage.get("date") != current_utc_date:
+                usage["date"] = current_utc_date
+                usage["egress_mb"] = 0.0
+                usage["file_count"] = 0
+                usage["quota_hits"] = 0
 
-            return True
+                # Make sure all-time fields exist
+                if "egress_mb_alltime" not in usage:
+                    usage["egress_mb_alltime"] = 0.0
+                if "file_count_alltime" not in usage:
+                    usage["file_count_alltime"] = 0
+
+                await self.settings.update_one(
+                    {"_id": f"user_{user_id}"},
+                    {"$set": {"usage": usage}},
+                    upsert=True
+                )
+
+            incoming_mb = file_size_bytes / (1024 * 1024)
+
+            # Check limits
+            if daily_file_count_limit > 0 and usage.get("file_count", 0) >= daily_file_count_limit:
+                await self.record_quota_hit(user_id)
+                return False, f"You've reached your daily {daily_file_count_limit} file limit.", usage
+
+            if daily_egress_mb_limit > 0 and (usage.get("egress_mb", 0.0) + incoming_mb) > daily_egress_mb_limit:
+                await self.record_quota_hit(user_id)
+                mb_limit_str = f"{daily_egress_mb_limit} MB"
+                if daily_egress_mb_limit >= 1024:
+                    mb_limit_str = f"{daily_egress_mb_limit / 1024:.2f} GB"
+                return False, f"You've reached your daily {mb_limit_str} egress limit.", usage
+
+            return True, "", usage
+
         except Exception as e:
-            logger.error(f"Error checking rate limit: {e}")
-            return True
+            logger.error(f"Error checking daily quota for {user_id}: {e}")
+            return True, "", {}
 
-    async def update_rate_limit(self, user_id: int):
+    async def record_quota_hit(self, user_id: int):
         if self.settings is None:
             return
-        import time
 
+        import datetime
+        current_utc_date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+
+        try:
+            # Increment user quota hit
+            await self.settings.update_one(
+                {"_id": f"user_{user_id}"},
+                {"$inc": {"usage.quota_hits": 1}},
+                upsert=True
+            )
+
+            # Increment global quota hit for the day
+            await self.daily_stats.update_one(
+                {"date": current_utc_date},
+                {"$inc": {"quota_hits": 1}},
+                upsert=True
+            )
+        except Exception as e:
+            logger.error(f"Error recording quota hit: {e}")
+
+    async def update_usage(self, user_id: int, processed_file_size_bytes: int):
+        if self.settings is None:
+            return
+
+        import datetime
+        current_utc_date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+        processed_mb = processed_file_size_bytes / (1024 * 1024)
+
+        try:
+            # Ensure the user has the current date set in case they bypassed check_daily_quota (e.g. CEO/Admins)
+            user_doc = await self.settings.find_one({"_id": f"user_{user_id}"})
+            usage = user_doc.get("usage", {}) if user_doc else {}
+
+            if usage.get("date") != current_utc_date:
+                await self.settings.update_one(
+                    {"_id": f"user_{user_id}"},
+                    {"$set": {
+                        "usage.date": current_utc_date,
+                        "usage.egress_mb": 0.0,
+                        "usage.file_count": 0,
+                        "usage.quota_hits": 0
+                    }},
+                    upsert=True
+                )
+
+            # Increment usage
+            await self.settings.update_one(
+                {"_id": f"user_{user_id}"},
+                {"$inc": {
+                    "usage.egress_mb": processed_mb,
+                    "usage.file_count": 1,
+                    "usage.egress_mb_alltime": processed_mb,
+                    "usage.file_count_alltime": 1
+                }},
+                upsert=True
+            )
+
+            # Update daily stats globally
+            await self.daily_stats.update_one(
+                {"date": current_utc_date},
+                {"$inc": {
+                    "egress_mb": processed_mb,
+                    "file_count": 1
+                }},
+                upsert=True
+            )
+        except Exception as e:
+            logger.error(f"Error updating usage: {e}")
+
+    async def get_daily_stats(self, limit=7):
+        if self.settings is None:
+            return []
+        try:
+            cursor = self.daily_stats.find({}).sort("date", -1).limit(limit)
+            return await cursor.to_list(length=limit)
+        except Exception as e:
+            logger.error(f"Error fetching daily stats: {e}")
+            return []
+
+    async def get_top_users_today(self, limit=10, skip=0):
+        if self.settings is None:
+            return [], 0
+
+        import datetime
+        current_utc_date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+
+        try:
+            query = {
+                "_id": {"$regex": "^user_"},
+                "usage.date": current_utc_date,
+                "usage.egress_mb": {"$gt": 0}
+            }
+
+            cursor = self.settings.find(query).sort("usage.egress_mb", -1).skip(skip).limit(limit)
+            users = await cursor.to_list(length=limit)
+            total = await self.settings.count_documents(query)
+
+            return users, total
+        except Exception as e:
+            logger.error(f"Error fetching top users: {e}")
+            return [], 0
+
+    async def get_total_users(self):
+        if self.settings is None:
+            return 0
+        try:
+            return await self.settings.count_documents({"_id": {"$regex": "^user_"}})
+        except Exception as e:
+            return 0
+
+    async def get_dashboard_stats(self):
+        if self.settings is None:
+            return {}
+
+        import datetime
+        current_utc_date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+
+        try:
+            # Get today's global stats
+            today_stats = await self.daily_stats.find_one({"date": current_utc_date}) or {}
+
+            # Get all-time totals using aggregation
+            all_time_pipeline = [
+                {"$group": {
+                    "_id": None,
+                    "total_egress": {"$sum": "$egress_mb"},
+                    "total_files": {"$sum": "$file_count"}
+                }}
+            ]
+            all_time_result = await self.daily_stats.aggregate(all_time_pipeline).to_list(1)
+            all_time = all_time_result[0] if all_time_result else {"total_egress": 0, "total_files": 0}
+
+            # Count users
+            total_users = await self.get_total_users()
+
+            # Get blocked users count
+            public_config = await self.get_public_config()
+            blocked_users = len(public_config.get("blocked_users", []))
+
+            # Get start date (first entry in daily_stats)
+            first_stat = await self.daily_stats.find_one({}, sort=[("date", 1)])
+            bot_start_date = first_stat["date"] if first_stat else current_utc_date
+
+            return {
+                "total_users": total_users,
+                "files_today": today_stats.get("file_count", 0),
+                "egress_today_mb": today_stats.get("egress_mb", 0.0),
+                "quota_hits_today": today_stats.get("quota_hits", 0),
+                "total_files": all_time.get("total_files", 0),
+                "total_egress_mb": all_time.get("total_egress", 0.0),
+                "blocked_users": blocked_users,
+                "bot_start_date": bot_start_date
+            }
+        except Exception as e:
+            logger.error(f"Error getting dashboard stats: {e}")
+            return {}
+
+    async def block_user(self, user_id: int):
+        if self.settings is None:
+            return
+        try:
+            await self.settings.update_one(
+                {"_id": "public_mode_config"},
+                {"$addToSet": {"blocked_users": user_id}},
+                upsert=True
+            )
+        except Exception as e:
+            logger.error(f"Error blocking user: {e}")
+
+    async def unblock_user(self, user_id: int):
+        if self.settings is None:
+            return
+        try:
+            await self.settings.update_one(
+                {"_id": "public_mode_config"},
+                {"$pull": {"blocked_users": user_id}}
+            )
+        except Exception as e:
+            logger.error(f"Error unblocking user: {e}")
+
+    async def is_user_blocked(self, user_id: int) -> bool:
+        if self.settings is None:
+            return False
+        try:
+            config = await self.get_public_config()
+            return user_id in config.get("blocked_users", [])
+        except Exception as e:
+            return False
+
+    async def reset_user_quota(self, user_id: int):
+        if self.settings is None:
+            return
         try:
             await self.settings.update_one(
                 {"_id": f"user_{user_id}"},
-                {"$set": {"last_used": time.time()}},
-                upsert=True,
+                {"$set": {
+                    "usage.egress_mb": 0.0,
+                    "usage.file_count": 0,
+                    "usage.quota_hits": 0
+                }}
             )
         except Exception as e:
-            logger.error(f"Error updating rate limit: {e}")
+            logger.error(f"Error resetting user quota: {e}")
 
 
 db = Database()

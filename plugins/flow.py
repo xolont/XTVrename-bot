@@ -1106,17 +1106,19 @@ async def handle_file_upload(client, message):
             )
             return
 
-        if not await db.check_rate_limit(user_id):
-            config = await db.get_public_config()
-            delay = config.get("rate_limit_delay", 0)
-            await message.reply_text(
-                f"⏳ **Rate Limited**\n\nPlease wait {delay} seconds between uploads."
-            )
-            return
+    if await db.is_user_blocked(user_id):
+        await message.reply_text("🚫 **Access Blocked**\n\nYou have been blocked from using this bot.")
+        return
 
     media = message.document or message.video
     if media:
         file_size = media.file_size
+
+        # Check daily quota
+        quota_ok, error_msg, _ = await db.check_daily_quota(user_id, file_size)
+        if not quota_ok:
+            await message.reply_text(f"🛑 **Quota Exceeded**\n\n{error_msg}")
+            return
 
         if file_size > 4000 * 1024 * 1024:
             await message.reply_text(

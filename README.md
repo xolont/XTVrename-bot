@@ -124,6 +124,7 @@ The XTV Rename Bot can operate in two distinct modes via the `PUBLIC_MODE` envir
   help - How to use the bot
   settings - Customize your personal templates and thumbnail
   info - View bot info and support contact
+  usage - Track your daily limits
   admin - Access Global Configurations (CEO Only)
   end - Cancel the current task
   ```
@@ -134,6 +135,7 @@ The XTV Rename Bot can operate in two distinct modes via the `PUBLIC_MODE` envir
 *   **/admin**: Access the **Admin Panel** to configure global settings.
 *   **/settings**: Access **Personal Settings** to configure your own templates and thumbnails (Public Mode only).
 *   **/info**: View bot details and support info (Public Mode only).
+*   **/usage**: View your daily limits and personal usage (Public Mode only).
 *   **/end**: Clear current session state (useful to reset auto-detection).
 
 **Shortcut Commands:**

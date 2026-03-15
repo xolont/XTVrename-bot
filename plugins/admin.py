@@ -1,4 +1,5 @@
 from pyrogram import Client, filters
+from pyrogram.types import CallbackQuery, Message
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from config import Config
 from database import db
@@ -52,13 +53,25 @@ async def admin_panel(client, message):
                     ],
                     [
                         InlineKeyboardButton(
-                            "⏱ Edit Rate Limits",
-                            callback_data="admin_public_rate_limit",
+                            "📦 Set Daily Egress Limit",
+                            callback_data="admin_daily_egress",
+                        ),
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "📄 Set Daily File Limit",
+                            callback_data="admin_daily_files",
                         ),
                         InlineKeyboardButton(
                             "⏱ Edit Dumb Channel Timeout",
                             callback_data="admin_dumb_timeout",
                         ),
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "📊 Usage Dashboard",
+                            callback_data="admin_usage_dashboard",
+                        )
                     ],
                     [
                         InlineKeyboardButton(
@@ -293,7 +306,10 @@ async def admin_callback(client, callback_query):
                 f"**Force-Sub Channel:** {config.get('force_sub_channel', 'Not set')}\n"
             )
             text += (
-                f"**Rate Limit Delay:** {config.get('rate_limit_delay', 0)} seconds\n"
+                f"**Daily Egress Limit:** {config.get('daily_egress_mb', 0)} MB\n"
+            )
+            text += (
+                f"**Daily File Limit:** {config.get('daily_file_count', 0)} files\n"
             )
 
             await callback_query.message.edit_text(
@@ -378,16 +394,34 @@ async def admin_callback(client, callback_query):
             )
             return
 
-        elif data == "admin_public_rate_limit":
+        elif data == "admin_daily_egress":
             config = await db.get_public_config()
-            current_val = config.get("rate_limit_delay", 0)
+            current_val = config.get("daily_egress_mb", 0)
             await callback_query.message.edit_text(
-                f"⏱ **Edit Rate Limit**\n\nCurrent: `{current_val}` seconds\n\nClick below to change it.",
+                f"📦 **Edit Daily Egress Limit**\n\nCurrent: `{current_val}` MB\n\nClick below to change it.",
                 reply_markup=InlineKeyboardMarkup(
                     [
                         [
                             InlineKeyboardButton(
-                                "✏️ Change", callback_data="prompt_public_rate_limit"
+                                "✏️ Change", callback_data="prompt_daily_egress"
+                            )
+                        ],
+                        [InlineKeyboardButton("🔙 Back", callback_data="admin_main")],
+                    ]
+                ),
+            )
+            return
+
+        elif data == "admin_daily_files":
+            config = await db.get_public_config()
+            current_val = config.get("daily_file_count", 0)
+            await callback_query.message.edit_text(
+                f"📄 **Edit Daily File Limit**\n\nCurrent: `{current_val}` files\n\nClick below to change it.",
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "✏️ Change", callback_data="prompt_daily_files"
                             )
                         ],
                         [InlineKeyboardButton("🔙 Back", callback_data="admin_main")],
@@ -415,8 +449,10 @@ async def admin_callback(client, callback_query):
                 "I will automatically detect the channel and set it up instantly.\n\n"
                 "*Send `disable` to cancel and turn off Force-Sub.*"
             )
-        elif field == "rate_limit":
-            text = "⏱ **Send the delay in seconds (e.g., 60).**\nSend `0` to disable."
+        elif field == "daily_egress":
+            text = "📦 **Send the new daily egress limit in MB (e.g., 2048).**\nSend `0` to disable."
+        elif field == "daily_files":
+            text = "📄 **Send the new daily file limit.**\nSend `0` to disable."
         else:
             text = "Send the new value:"
 
@@ -934,6 +970,28 @@ async def handle_admin_text(client, message):
     if not state:
         raise ContinuePropagation
 
+    if state == "awaiting_user_lookup":
+        val = message.text.strip()
+        from utils.state import clear_session
+
+        # Check if they provided an ID directly
+        if val.isdigit():
+            user_id = int(val)
+        else:
+            # Maybe they provided a username
+            try:
+                user = await client.get_users(val)
+                user_id = user.id
+            except Exception:
+                await message.reply_text("❌ Could not find a user with that ID or username. Please make sure the ID is correct.",
+                                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Dashboard", callback_data="admin_usage_dashboard")]]))
+                await clear_session(message.from_user.id)
+                return
+
+        await show_user_lookup(client, message, user_id)
+        await clear_session(message.from_user.id)
+        return
+
     if state == "awaiting_dumb_timeout":
         val = message.text.strip() if message.text else ""
         if not val.isdigit():
@@ -1189,3 +1247,308 @@ async def handle_admin_text(client, message):
 # Backup Channel @XTVhome
 # Contact on Telegram @davdxpx
 # --------------------------------------------------------------------------
+
+@Client.on_callback_query(filters.regex("^admin_usage_dashboard$") & filters.user(Config.CEO_ID))
+async def admin_dashboard_overview_cb(client: Client, callback_query: CallbackQuery):
+    stats = await db.get_dashboard_stats()
+
+    # Active slots logic using semaphores in process.py
+    from plugins.process import _SEMAPHORES
+
+    active_slots = 0
+    for phase in ["download", "process", "upload"]:
+        if _SEMAPHORES.get(phase):
+            # value of semaphore is internal counter. Max is 3. So acquired = 3 - value
+            active_slots += (3 - _SEMAPHORES[phase]._value)
+
+    # Format egress strings
+    def format_egress(mb):
+        if mb >= 1048576:
+            return f"{mb / 1048576:.2f} TB"
+        elif mb >= 1024:
+            return f"{mb / 1024:.2f} GB"
+        else:
+            return f"{mb:.2f} MB"
+
+    import datetime
+    current_time_str = datetime.datetime.utcnow().strftime("%d %b %Y, %H:%M UTC")
+    start_date_obj = datetime.datetime.strptime(stats.get("bot_start_date"), "%Y-%m-%d")
+    start_date_str = start_date_obj.strftime("%d %b %Y")
+
+    # Build text
+    text = (
+        f"📊 **𝕏TV Usage Dashboard**\n"
+        f"Updated: {current_time_str}\n"
+        f"═════════════════════════\n"
+        f"👥 Total Users: `{stats.get('total_users')}`\n"
+        f"📁 Files Processed Today: `{stats.get('files_today')}`\n"
+        f"📦 Egress Today: `{format_egress(stats.get('egress_today_mb'))}`\n"
+    )
+
+    if Config.PUBLIC_MODE:
+        text += f"⚡ Active Right Now: `{active_slots}`\n"
+
+    text += (
+        f"─────────────────────────\n"
+        f"📈 **All-Time**\n"
+        f"─────────────────────────\n"
+        f"📁 Total Files: `{stats.get('total_files')}`\n"
+        f"📦 Total Egress: `{format_egress(stats.get('total_egress_mb'))}`\n"
+        f"🗓️ Bot Running Since: `{start_date_str}`\n"
+    )
+
+    if Config.PUBLIC_MODE:
+        text += (
+            f"─────────────────────────\n"
+            f"⚠️ Quota Hits Today: `{stats.get('quota_hits_today')}`\n"
+            f"🚫 Blocked Users: `{stats.get('blocked_users')}`\n"
+        )
+
+    text += f"─────────────────────────"
+
+    await callback_query.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("🔝 Top Users", callback_data="admin_dashboard_top_0"),
+                    InlineKeyboardButton("📅 Daily Breakdown", callback_data="admin_dashboard_daily")
+                ],
+                [
+                    InlineKeyboardButton("🔍 User Lookup", callback_data="prompt_user_lookup"),
+                ],
+                [InlineKeyboardButton("🔙 Back to Admin", callback_data="admin_main")]
+            ]
+        )
+    )
+
+@Client.on_callback_query(filters.regex(r"^admin_dashboard_top_(\d+)$") & filters.user(Config.CEO_ID))
+async def admin_dashboard_top_cb(client: Client, callback_query: CallbackQuery):
+    page = int(callback_query.matches[0].group(1))
+    limit = 10
+    skip = page * limit
+
+    users, total = await db.get_top_users_today(limit=limit, skip=skip)
+
+    import datetime
+    current_date = datetime.datetime.utcnow().strftime("%d %b")
+
+    text = f"🏆 **Top Users — Today ({current_date})**\n\n"
+
+    if not users:
+        text += "No usage tracked today."
+    else:
+        for i, user in enumerate(users):
+            rank = skip + i + 1
+            user_id = user["_id"].replace("user_", "")
+
+            # Try to get user info if possible (fallback to ID)
+            try:
+                user_obj = await client.get_users(int(user_id))
+                display_name = f"@{user_obj.username}" if user_obj.username else f"{user_obj.first_name}"
+            except Exception:
+                display_name = f"User {user_id}"
+
+            usage = user.get("usage", {})
+            files = usage.get("file_count", 0)
+            mb = usage.get("egress_mb", 0.0)
+
+            if mb >= 1024:
+                mb_str = f"{mb / 1024:.2f} GB"
+            else:
+                mb_str = f"{mb:.2f} MB"
+
+            text += f"**#{rank}** {display_name} — {files} files · {mb_str}\n"
+
+    # Pagination
+    buttons = []
+    nav_row = []
+
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"admin_dashboard_top_{page-1}"))
+
+    total_pages = (total + limit - 1) // limit if total > 0 else 1
+
+    nav_row.append(InlineKeyboardButton(f"Page {page+1}/{total_pages}", callback_data="ignore"))
+
+    if skip + limit < total:
+        nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"admin_dashboard_top_{page+1}"))
+
+    if len(nav_row) > 1:
+        buttons.append(nav_row)
+
+    buttons.append([InlineKeyboardButton("🔙 Back to Dashboard", callback_data="admin_usage_dashboard")])
+
+    await callback_query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+
+@Client.on_callback_query(filters.regex("^admin_dashboard_daily$") & filters.user(Config.CEO_ID))
+async def admin_dashboard_daily_cb(client: Client, callback_query: CallbackQuery):
+    daily_stats = await db.get_daily_stats(limit=7)
+
+    text = "📅 **Last 7 Days Breakdown**\n\n"
+    text += "`Date          Files    Egress`\n"
+    text += "`──────────────────────────────`\n"
+
+    if not daily_stats:
+        text += "No history available."
+    else:
+        import datetime
+        current_utc_date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+
+        for stat in daily_stats:
+            date_obj = datetime.datetime.strptime(stat["date"], "%Y-%m-%d")
+            date_str = date_obj.strftime("%d %b %Y")
+
+            files = stat.get("file_count", 0)
+            mb = stat.get("egress_mb", 0.0)
+
+            if mb >= 1048576:
+                egress_str = f"{mb / 1048576:.2f} TB"
+            elif mb >= 1024:
+                egress_str = f"{mb / 1024:.2f} GB"
+            else:
+                egress_str = f"{mb:.2f} MB"
+
+            is_today = " ← today" if stat["date"] == current_utc_date else ""
+
+            # Format columns
+            text += f"`{date_str:<13} {files:<7} {egress_str:>7}`{is_today}\n"
+
+    await callback_query.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Dashboard", callback_data="admin_usage_dashboard")]])
+    )
+
+@Client.on_message(filters.regex(r"^/lookup (\d+)$") & filters.user(Config.CEO_ID))
+async def admin_lookup_user(client: Client, message: Message):
+    user_id = int(message.matches[0].group(1))
+    await show_user_lookup(client, message, user_id)
+
+async def show_user_lookup(client: Client, message: Message, user_id: int):
+    usage = await db.get_user_usage(user_id)
+    is_blocked = await db.is_user_blocked(user_id)
+
+    import datetime
+    current_utc_date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+    current_date_display = datetime.datetime.utcnow().strftime("%d %b")
+
+    files_today = 0
+    egress_today_mb = 0.0
+    quota_hits_today = 0
+
+    if usage.get("date") == current_utc_date:
+        files_today = usage.get("file_count", 0)
+        egress_today_mb = usage.get("egress_mb", 0.0)
+        quota_hits_today = usage.get("quota_hits", 0)
+
+    files_alltime = usage.get("file_count_alltime", 0)
+    egress_alltime_mb = usage.get("egress_mb_alltime", 0.0)
+
+    def format_egress(mb):
+        if mb >= 1048576:
+            return f"{mb / 1048576:.2f} TB"
+        elif mb >= 1024:
+            return f"{mb / 1024:.2f} GB"
+        else:
+            return f"{mb:.2f} MB"
+
+    # Try to get user profile info
+    try:
+        user_obj = await client.get_users(user_id)
+        name = user_obj.first_name
+        username = f"@{user_obj.username}" if user_obj.username else "N/A"
+    except Exception:
+        name = "Unknown User"
+        username = "N/A"
+
+    text = (
+        f"👤 **User Lookup**\n\n"
+        f"**ID:** `{user_id}`\n"
+        f"**Name:** {name}\n"
+        f"**Username:** {username}\n"
+        f"──────────────────────────\n"
+        f"📊 **Today ({current_date_display})**\n"
+        f"Files: `{files_today}`\n"
+        f"Egress: `{format_egress(egress_today_mb)}`\n"
+        f"Quota hits: `{quota_hits_today}`\n\n"
+        f"📈 **All-Time**\n"
+        f"Files: `{files_alltime}`\n"
+        f"Egress: `{format_egress(egress_alltime_mb)}`\n"
+        f"──────────────────────────\n"
+    )
+
+    if is_blocked:
+        text += "🔴 **Status: BLOCKED**\n"
+
+    buttons = []
+
+    if is_blocked:
+        buttons.append([InlineKeyboardButton("✅ Unblock User", callback_data=f"admin_unblock_{user_id}")])
+    else:
+        buttons.append([InlineKeyboardButton("🚫 Block User", callback_data=f"admin_block_{user_id}")])
+
+    buttons.append([InlineKeyboardButton("🗑️ Reset Today's Quota", callback_data=f"admin_reset_quota_{user_id}")])
+    buttons.append([InlineKeyboardButton("🔙 Dashboard", callback_data="admin_usage_dashboard")])
+
+    await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+
+@Client.on_callback_query(filters.regex(r"^admin_block_(\d+)$") & filters.user(Config.CEO_ID))
+async def admin_block_user_cb(client: Client, callback_query: CallbackQuery):
+    user_id = int(callback_query.matches[0].group(1))
+    await db.block_user(user_id)
+    await callback_query.answer("User Blocked", show_alert=True)
+    await show_user_lookup(client, callback_query.message, user_id)
+    await callback_query.message.delete()
+
+@Client.on_callback_query(filters.regex(r"^admin_unblock_(\d+)$") & filters.user(Config.CEO_ID))
+async def admin_unblock_user_cb(client: Client, callback_query: CallbackQuery):
+    user_id = int(callback_query.matches[0].group(1))
+    await db.unblock_user(user_id)
+    await callback_query.answer("User Unblocked", show_alert=True)
+    await show_user_lookup(client, callback_query.message, user_id)
+    await callback_query.message.delete()
+
+@Client.on_callback_query(filters.regex(r"^admin_reset_quota_(\d+)$") & filters.user(Config.CEO_ID))
+async def admin_reset_quota_cb(client: Client, callback_query: CallbackQuery):
+    user_id = int(callback_query.matches[0].group(1))
+    await db.reset_user_quota(user_id)
+    await callback_query.answer("Quota Reset", show_alert=True)
+    await show_user_lookup(client, callback_query.message, user_id)
+    await callback_query.message.delete()
+
+@Client.on_callback_query(filters.regex("^prompt_user_lookup$") & filters.user(Config.CEO_ID))
+async def admin_prompt_lookup_cb(client: Client, callback_query: CallbackQuery):
+    await callback_query.message.edit_text(
+        "🔍 **User Lookup**\n\n"
+        "Please send the user's Telegram ID (e.g., 123456789) to view their profile.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Dashboard", callback_data="admin_usage_dashboard")]])
+    )
+    from utils.state import set_state
+    await set_state(callback_query.from_user.id, "awaiting_user_lookup")
+
+
+@Client.on_message(filters.text & filters.private & filters.user(Config.CEO_ID), group=2)
+async def admin_handle_user_lookup_text(client: Client, message: Message):
+    from utils.state import get_state, clear_session
+    state = await get_state(message.from_user.id)
+
+    if state == "awaiting_user_lookup":
+        val = message.text.strip()
+
+        # Check if they provided an ID directly
+        if val.isdigit():
+            user_id = int(val)
+        else:
+            # Maybe they provided a username
+            try:
+                user = await client.get_users(val)
+                user_id = user.id
+            except Exception:
+                await message.reply_text("❌ Could not find a user with that ID or username. Please make sure the ID is correct.",
+                                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Dashboard", callback_data="admin_usage_dashboard")]]))
+                await clear_session(message.from_user.id)
+                return
+
+        await show_user_lookup(client, message, user_id)
+        await clear_session(message.from_user.id)
+        raise ContinuePropagation
