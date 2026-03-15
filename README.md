@@ -79,6 +79,7 @@ Create a `.env` file in the root directory. You will need a **MongoDB** instance
 | `CEO_ID` | Your Telegram User ID (Admin) | ✅ |
 | `ADMIN_IDS` | Allowed User IDs (comma separated) | ❌ |
 | `PUBLIC_MODE` | Set to `True` to allow anyone to use the bot. | ❌ |
+| `DEBUG_MODE` | Enable verbose debug logging. Default: False. | ❌ |
 | `TMDB_API_KEY` | TMDb API Key for metadata | ✅ |
 
 ## 🚀 𝕏TV Pro™ Setup (4GB File Support)

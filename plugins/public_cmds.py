@@ -121,6 +121,9 @@ async def settings_panel(client, message):
     )
 
 
+from utils.logger import debug
+
+debug("✅ Loaded handler: user_settings_callback")
 @Client.on_callback_query(
     filters.regex(
         r"^(user_|edit_user_template_|edit_user_fn_template_|prompt_user_.*|dumb_user_)"
@@ -132,7 +135,7 @@ async def user_settings_callback(client, callback_query):
 
     user_id = callback_query.from_user.id
     data = callback_query.data
-    logger.info(f"User settings callback: {data} from user {user_id}")
+    debug(f"User settings callback: {data} from user {user_id}")
 
     if data.startswith("dumb_user_"):
         if data == "dumb_user_menu":

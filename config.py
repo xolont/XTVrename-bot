@@ -17,6 +17,7 @@ class Config:
     ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
 
     PUBLIC_MODE = os.getenv("PUBLIC_MODE", "False").lower() == "true"
+    DEBUG_MODE = os.getenv("DEBUG_MODE", "False").lower() in ("true", "1", "yes")
 
     TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 

@@ -278,11 +278,14 @@ async def handle_end_command_unique(client, message):
     )
 
 
+from utils.logger import debug
+
+debug("✅ Loaded handler: help_callback")
 @Client.on_callback_query(filters.regex(r"^help_"))
 async def handle_help_callbacks(client, callback_query):
     user_id = callback_query.from_user.id
     data = callback_query.data
-    logger.info(f"Help callback received: {data} from {user_id}")
+    debug(f"Help callback received: {data} from {user_id}")
 
     back_button = [
         [InlineKeyboardButton("🔙 Back to Help Menu", callback_data="help_guide")]

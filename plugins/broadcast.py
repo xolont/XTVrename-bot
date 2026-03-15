@@ -6,6 +6,9 @@ from database import db
 from config import Config
 from utils.state import set_state, get_state, update_data, get_data, clear_session
 from plugins.admin import is_admin
+from utils.logger import debug
+
+debug("✅ Loaded handler: broadcast_callback")
 
 
 @Client.on_callback_query(
@@ -14,6 +17,7 @@ from plugins.admin import is_admin
     )
 )
 async def broadcast_callback(client, callback_query):
+    await callback_query.answer()
     user_id = callback_query.from_user.id
     if not is_admin(user_id):
         await callback_query.answer("Not authorized.", show_alert=True)
