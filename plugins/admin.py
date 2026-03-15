@@ -145,11 +145,12 @@ async def admin_panel(client, message):
 
 
 from pyrogram import ContinuePropagation
+from utils.logger import debug
 
-
+debug("✅ Loaded handler: admin_callback")
 @Client.on_callback_query(
     filters.regex(
-        r"^(admin_|edit_template_|edit_fn_template_|prompt_admin_|prompt_public_|prompt_fn_template_|prompt_template_|dumb_(?!user_))"
+        r"^(admin_(?!usage_dashboard|dashboard_|block_|unblock_|reset_quota_|broadcast)|edit_template_|edit_fn_template_|prompt_admin_|prompt_public_|prompt_daily_|prompt_fn_template_|prompt_template_|dumb_(?!user_))"
     )
 )
 async def admin_callback(client, callback_query):
@@ -157,7 +158,7 @@ async def admin_callback(client, callback_query):
     if not is_admin(user_id):
         raise ContinuePropagation
     data = callback_query.data
-    logger.info(f"Admin callback: {data} from user {user_id}")
+    debug(f"Admin callback: {data} from user {user_id}")
 
     if not Config.PUBLIC_MODE and data.startswith("dumb_"):
         if data == "dumb_menu":
@@ -298,7 +299,7 @@ async def admin_callback(client, callback_query):
         )
         return
 
-    if Config.PUBLIC_MODE and data.startswith("admin_public_"):
+    if Config.PUBLIC_MODE and (data.startswith("admin_public_") or data.startswith("admin_daily_")):
         if data == "admin_public_view":
             config = await db.get_public_config()
             text = "👀 **Public Mode Config**\n\n"
@@ -433,8 +434,8 @@ async def admin_callback(client, callback_query):
             )
             return
 
-    if Config.PUBLIC_MODE and data.startswith("prompt_public_"):
-        field = data.replace("prompt_public_", "")
+    if Config.PUBLIC_MODE and (data.startswith("prompt_public_") or data.startswith("prompt_daily_")):
+        field = data.replace("prompt_public_", "").replace("prompt_daily_", "daily_")
         admin_sessions[user_id] = f"awaiting_public_{field}"
 
         if field == "bot_name":
@@ -1255,8 +1256,10 @@ async def handle_admin_text(client, message):
 # Contact on Telegram @davdxpx
 # --------------------------------------------------------------------------
 
+debug("✅ Loaded handler: admin_dashboard_overview_cb")
 @Client.on_callback_query(filters.regex("^admin_usage_dashboard$") & filters.user(Config.CEO_ID))
 async def admin_dashboard_overview_cb(client: Client, callback_query: CallbackQuery):
+    await callback_query.answer()
     stats = await db.get_dashboard_stats()
 
     # Active slots logic using semaphores in process.py
@@ -1329,8 +1332,10 @@ async def admin_dashboard_overview_cb(client: Client, callback_query: CallbackQu
         )
     )
 
+debug("✅ Loaded handler: admin_dashboard_top_cb")
 @Client.on_callback_query(filters.regex(r"^admin_dashboard_top_(\d+)$") & filters.user(Config.CEO_ID))
 async def admin_dashboard_top_cb(client: Client, callback_query: CallbackQuery):
+    await callback_query.answer()
     page = int(callback_query.matches[0].group(1))
     limit = 10
     skip = page * limit
@@ -1388,8 +1393,10 @@ async def admin_dashboard_top_cb(client: Client, callback_query: CallbackQuery):
 
     await callback_query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
+debug("✅ Loaded handler: admin_dashboard_daily_cb")
 @Client.on_callback_query(filters.regex("^admin_dashboard_daily$") & filters.user(Config.CEO_ID))
 async def admin_dashboard_daily_cb(client: Client, callback_query: CallbackQuery):
+    await callback_query.answer()
     daily_stats = await db.get_daily_stats(limit=7)
 
     text = "📅 **Last 7 Days Breakdown**\n\n"
@@ -1530,32 +1537,37 @@ async def show_user_lookup(client: Client, message: Message, user_id: int):
 
     await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
+debug("✅ Loaded handler: admin_block_user_cb")
 @Client.on_callback_query(filters.regex(r"^admin_block_(\d+)$") & filters.user(Config.CEO_ID))
 async def admin_block_user_cb(client: Client, callback_query: CallbackQuery):
+    await callback_query.answer("User Blocked", show_alert=True)
     user_id = int(callback_query.matches[0].group(1))
     await db.block_user(user_id)
-    await callback_query.answer("User Blocked", show_alert=True)
     await show_user_lookup(client, callback_query.message, user_id)
     await callback_query.message.delete()
 
+debug("✅ Loaded handler: admin_unblock_user_cb")
 @Client.on_callback_query(filters.regex(r"^admin_unblock_(\d+)$") & filters.user(Config.CEO_ID))
 async def admin_unblock_user_cb(client: Client, callback_query: CallbackQuery):
+    await callback_query.answer("User Unblocked", show_alert=True)
     user_id = int(callback_query.matches[0].group(1))
     await db.unblock_user(user_id)
-    await callback_query.answer("User Unblocked", show_alert=True)
     await show_user_lookup(client, callback_query.message, user_id)
     await callback_query.message.delete()
 
+debug("✅ Loaded handler: admin_reset_quota_cb")
 @Client.on_callback_query(filters.regex(r"^admin_reset_quota_(\d+)$") & filters.user(Config.CEO_ID))
 async def admin_reset_quota_cb(client: Client, callback_query: CallbackQuery):
+    await callback_query.answer("Quota Reset", show_alert=True)
     user_id = int(callback_query.matches[0].group(1))
     await db.reset_user_quota(user_id)
-    await callback_query.answer("Quota Reset", show_alert=True)
     await show_user_lookup(client, callback_query.message, user_id)
     await callback_query.message.delete()
 
+debug("✅ Loaded handler: admin_prompt_lookup_cb")
 @Client.on_callback_query(filters.regex("^prompt_user_lookup$") & filters.user(Config.CEO_ID))
 async def admin_prompt_lookup_cb(client: Client, callback_query: CallbackQuery):
+    await callback_query.answer()
     await callback_query.message.edit_text(
         "🔍 **User Lookup**\n\n"
         "Please send the user's Telegram ID (e.g., 123456789) to view their profile.",
